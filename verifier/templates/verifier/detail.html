@@ -37,6 +37,7 @@
       <thead><tr>
         <th>#</th><th>Service</th><th>Status</th>
         <th class="num">Checked</th><th class="num">Valid</th><th class="num">Invalid</th><th class="num">Unresolved</th>
+        <th>Download</th>
       </tr></thead>
       <tbody>
         {% for step in steps %}
@@ -48,6 +49,12 @@
           <td class="num col-valid" style="color:var(--ok);">{{ step.valid }}</td>
           <td class="num col-invalid" style="color:var(--bad);">{{ step.invalid }}</td>
           <td class="num col-unresolved" style="color:var(--warn);">{{ step.unresolved }}</td>
+          <td class="col-dl">
+            <span class="dl-links {% if step.status != 'completed' or not step.checked %}hide{% endif %}">
+              <a class="btn btn-ghost dl-mini" href="{% url 'verifier:step_download' job.pk step.order %}" title="All contacts this service checked, with status">Checked ↓</a>
+              <a class="btn btn-soft dl-mini" href="{% url 'verifier:step_download' job.pk step.order %}?valid=1" title="Only contacts valid at this step">Valid ↓</a>
+            </span>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -88,6 +95,8 @@
     padding:15px 24px; border-bottom:1px solid var(--line-soft); color:var(--ink); }
   .dl-row:last-child { border-bottom:none; }
   .dl-row:hover { background:#fafaf7; text-decoration:none; }
+  .dl-mini { padding:5px 10px; font-size:12.5px; margin-right:6px; }
+  .dl-links { display:inline-flex; }
 </style>
 {% endblock %}
 
@@ -109,6 +118,8 @@
       row.querySelector('.col-valid').textContent = s.valid;
       row.querySelector('.col-invalid').textContent = s.invalid;
       row.querySelector('.col-unresolved').textContent = s.unresolved;
+      const dl = row.querySelector('.dl-links');
+      if (dl) dl.classList.toggle('hide', !(s.status === 'Completed' && s.checked > 0));
     });
     if (data.counts) {
       document.getElementById('results-block').classList.remove('hide');

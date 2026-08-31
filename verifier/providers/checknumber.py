@@ -63,6 +63,19 @@ def _amount(obj) -> Decimal | None:
         return None
 
 
+def _check(resp):
+    """Raise a readable error carrying the provider's own message, if any."""
+    if resp.ok:
+        return
+    detail = ""
+    try:
+        body = resp.json()
+        detail = body.get("message") or body.get("error") or ""
+    except ValueError:
+        detail = resp.text[:200]
+    raise RuntimeError(f"checknumber.ai {resp.status_code}: {detail}".strip())
+
+
 class CheckNumberProvider(VerificationProvider):
     name = "checknumber"
 
@@ -87,7 +100,7 @@ class CheckNumberProvider(VerificationProvider):
             f"{self.base}/tasks", headers=self._headers,
             files=files, data=data, timeout=60,
         )
-        resp.raise_for_status()
+        _check(resp)
         body = resp.json()
         return SubmitResult(
             task_id=str(body["task_id"]),
@@ -100,7 +113,7 @@ class CheckNumberProvider(VerificationProvider):
             f"{self.base}/gettasks", headers=self._headers,
             data={"task_id": task_id}, timeout=60,
         )
-        resp.raise_for_status()
+        _check(resp)
         body = resp.json()
         state = str(body.get("status", "")).lower()
         return PollResult(
@@ -157,6 +170,13 @@ class CheckNumberProvider(VerificationProvider):
             )
             resp.raise_for_status()
             body = resp.json()
-            return _amount(body) or _amount(body.get("balance"))
+            # Balance may be {"balance": 20.08}, a bare number, or {"amount": ..}.
+            raw = body.get("balance") if isinstance(body, dict) else body
+            if isinstance(raw, dict):
+                return _amount(raw)
+            try:
+                return Decimal(str(raw))
+            except (InvalidOperation, TypeError):
+                return _amount(body)
         except requests.RequestException:
             return None

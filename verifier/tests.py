@@ -137,6 +137,19 @@ class PipelineTests(TestCase):
         self.assertEqual(job.status, JobStatus.COMPLETED)
         self.assertEqual(job.steps.count(), 1)
 
+    def test_step_download(self):
+        job = self._run(self._make_job())
+        step1 = job.steps.first()
+        checked = orchestrator.download_step_txt(job, step1)
+        lines = checked.strip().splitlines()
+        self.assertEqual(lines[0], "contact\tnormalized\tstatus")
+        # one row per contact checked at step 1
+        self.assertEqual(len(lines) - 1, step1.checked)
+        # valid-only export lists exactly the step's valid contacts
+        valid = orchestrator.download_step_txt(job, step1, valid_only=True)
+        got = {l for l in valid.splitlines() if l}
+        self.assertEqual(len(got), step1.valid)
+
 
 @override_settings(MEDIA_ROOT=_MEDIA, VERIFIER_PROVIDER="mock")
 class ViewTests(TestCase):

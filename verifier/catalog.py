@@ -22,11 +22,11 @@ EMAIL = "email"
 SERVICES = {
     "whatsapp": {
         "label": "WhatsApp",
-        "task_types": {PHONE: "whatsapp"},
+        "task_types": {PHONE: "ws"},
     },
     "telegram": {
         "label": "Telegram",
-        "task_types": {PHONE: "telegram"},
+        "task_types": {PHONE: "tg"},
     },
     "amazon": {
         "label": "Amazon",

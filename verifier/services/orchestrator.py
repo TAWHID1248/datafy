@@ -266,6 +266,27 @@ def download_all_results_txt(job):
     return csv_utils.build_all_results_txt(records, step_labels)
 
 
+def download_step_txt(job, step, valid_only=False):
+    """Per-step export: contacts this service checked, with their status.
+
+    Tab-separated (contact, normalized, status). With valid_only, only the
+    contacts this step marked valid, one normalized contact per line.
+    """
+    results = (
+        StepResult.objects.filter(step=step)
+        .select_related("contact")
+        .order_by("contact__normalized")
+    )
+    if valid_only:
+        values = [r.contact.normalized for r in results if r.outcome == Outcome.VALID]
+        return csv_utils.build_valid_txt(values)
+
+    out = ["contact\tnormalized\tstatus"]
+    for r in results:
+        out.append(f"{r.contact.raw_value}\t{r.contact.normalized}\t{r.outcome}")
+    return "\n".join(out) + "\n"
+
+
 def _appended_columns(job):
     cols = ["normalized_contact"]
     for i, step in enumerate(job.steps.all(), start=1):

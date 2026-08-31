@@ -259,6 +259,20 @@ def job_download(request, pk, kind):
     return redirect("verifier:detail", pk=job.pk)
 
 
+def step_download(request, pk, order):
+    """Download the contacts checked at one step (per-service export)."""
+    job = get_object_or_404(VerificationJob, pk=pk)
+    step = get_object_or_404(JobStep, job=job, order=order)
+    base = job.file_name.rsplit(".", 1)[0]
+    slug = step.service_label.lower().replace(" ", "_")
+    valid_only = request.GET.get("valid") == "1"
+    suffix = "valid" if valid_only else "checked"
+    return _txt(
+        orchestrator.download_step_txt(job, step, valid_only=valid_only),
+        f"{base}_{slug}_{suffix}.txt",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # History
 # --------------------------------------------------------------------------- #

@@ -13,6 +13,7 @@ urlpatterns = [
     path("verify/<int:pk>/", views.job_detail, name="detail"),
     path("verify/<int:pk>/status/", views.job_status, name="status"),
     path("verify/<int:pk>/download/<str:kind>/", views.job_download, name="download"),
+    path("verify/<int:pk>/step/<int:order>/download/", views.step_download, name="step_download"),
     path("verify/<int:pk>/delete/", views.delete_job, name="delete"),
     path("history/", views.history, name="history"),
     path("history/clear/", views.clear_history, name="clear_history"),
