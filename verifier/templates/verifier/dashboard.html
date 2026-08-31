@@ -1,80 +1,127 @@
 {% extends "verifier/base.html" %}
 {% block title %}Dashboard · Datafy{% endblock %}
+{% block crumb %}Dashboard{% endblock %}
 {% block content %}
-<h3 class="mb-4">Dashboard</h3>
 
-<div class="row g-3 mb-4">
-  <div class="col-6 col-lg-3">
-    <div class="card stat-card h-100"><div class="card-body">
-      <div class="text-muted small">Files processed</div>
-      <div class="display-6">{{ total_files }}</div>
-    </div></div>
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Your database, with confidence</div>
+    <h1 class="display">Good data. Clear decisions.</h1>
+    <p class="lead">Verify your contacts. Keep every detail. Skip the busywork.</p>
   </div>
-  <div class="col-6 col-lg-3">
-    <div class="card stat-card h-100"><div class="card-body">
-      <div class="text-muted small">Contacts checked</div>
-      <div class="display-6">{{ total_contacts }}</div>
-    </div></div>
+  <a class="btn btn-primary" href="{% url 'verifier:start' %}">+ New verification</a>
+</div>
+
+<div class="panel mt-24">
+  <div>
+    <span class="eyebrow-pill">One workflow. Zero spreadsheet juggling.</span>
+    <h2>From raw lists to<br>ready-to-use contacts.</h2>
+    <p>Upload once. Verify across your chosen platforms. Get your complete
+       database back, with all columns intact.</p>
+    <a class="btn btn-primary" href="{% url 'verifier:start' %}">Start a verification ↗</a>
   </div>
-  <div class="col-6 col-lg-3">
-    <div class="card stat-card h-100"><div class="card-body">
-      <div class="text-muted small">Valid</div>
-      <div class="display-6 text-success">{{ totals.valid }}</div>
-    </div></div>
+  <div class="flow">
+    <div class="flow-card">
+      <div class="t">▦ Original database</div>
+      <div class="s">All your columns, preserved</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-card">
+      <div class="t">◈ Verify &amp; match</div>
+      <div class="s">Up to 3 verification steps</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-card soft">
+      <div class="t">✓ Complete valid database</div>
+    </div>
   </div>
-  <div class="col-6 col-lg-3">
-    <div class="card stat-card h-100"><div class="card-body">
-      <div class="text-muted small">Invalid / Unresolved</div>
-      <div class="display-6">
-        <span class="text-danger">{{ totals.invalid }}</span>
-        <span class="text-muted">/</span>
-        <span class="text-warning">{{ totals.unresolved }}</span>
-      </div>
-    </div></div>
+</div>
+
+<div class="page-head mt-32" style="margin-bottom:16px; align-items:center;">
+  <h2 class="section-heading mb-0">Your verification overview</h2>
+  <span style="color:var(--muted-2); font-size:13px;">
+    {% if provider_live and balance is not None %}Provider balance: {{ balance }} · {% endif %}This machine · all time
+  </span>
+</div>
+
+<div class="grid-4">
+  <div class="stat">
+    <div class="k">Files processed</div>
+    <div class="v">{{ total_files }}</div>
+    <div class="c">Across all runs</div>
+  </div>
+  <div class="stat">
+    <div class="k">Contacts checked</div>
+    <div class="v">{{ total_contacts }}</div>
+    <div class="c">Unique eligible contacts</div>
+  </div>
+  <div class="stat">
+    <div class="k">Valid contacts</div>
+    <div class="v ok">{{ totals.valid }}</div>
+    <div class="c">Passed every selected step</div>
+  </div>
+  <div class="stat">
+    <div class="k">Unresolved rows</div>
+    <div class="v warn">{{ totals.unresolved }}</div>
+    <div class="c">Kept separate from invalid</div>
   </div>
 </div>
 
 {% if running %}
-<div class="card mb-4">
-  <div class="card-header">Currently running</div>
-  <ul class="list-group list-group-flush">
-    {% for job in running %}
-    <li class="list-group-item d-flex justify-content-between align-items-center">
-      <a href="{% url 'verifier:detail' job.pk %}">{{ job.file_name }}</a>
-      <span class="badge text-bg-info">{{ job.stage|default:job.get_status_display }}</span>
-    </li>
-    {% endfor %}
-  </ul>
+<div class="card mt-24">
+  <div class="card-head"><h3>Currently running</h3></div>
+  {% for job in running %}
+  <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 24px; border-bottom:1px solid var(--line-soft);">
+    <a href="{% url 'verifier:detail' job.pk %}">{{ job.file_name }}</a>
+    <span class="badge info"><span class="spinner" style="vertical-align:-2px;margin-right:6px;"></span>{{ job.stage|default:job.get_status_display }}</span>
+  </div>
+  {% endfor %}
 </div>
 {% endif %}
 
-<div class="card">
-  <div class="card-header d-flex justify-content-between">
-    <span>Recent verifications</span>
-    <a href="{% url 'verifier:history' %}" class="small">View all</a>
+<div class="card mt-24">
+  <div class="card-head">
+    <h3>Recent verifications</h3>
+    <a href="{% url 'verifier:history' %}">View all history →</a>
   </div>
-  <div class="table-responsive">
-    <table class="table mb-0">
-      <thead><tr>
-        <th>File</th><th>Type</th><th>Services</th><th>Status</th><th>Created</th><th></th>
-      </tr></thead>
+  {% if recent %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>File</th><th>Type</th><th>Services</th><th>Status</th><th>Created</th><th></th></tr></thead>
       <tbody>
         {% for job in recent %}
         <tr>
-          <td>{{ job.file_name }}</td>
+          <td style="font-weight:600;">{{ job.file_name }}</td>
           <td>{{ job.get_contact_type_display }}</td>
-          <td class="small text-muted">{{ job.service_order }}</td>
-          <td><span class="badge text-bg-secondary">{{ job.get_status_display }}</span></td>
-          <td class="small text-muted">{{ job.created_at|date:"M j, H:i" }}</td>
-          <td><a href="{% url 'verifier:detail' job.pk %}" class="btn btn-sm btn-outline-primary">View</a></td>
+          <td style="color:var(--muted);">{{ job.service_order }}</td>
+          <td><span class="badge">{{ job.get_status_display }}</span></td>
+          <td style="color:var(--muted);">{{ job.created_at|date:"M j, H:i" }}</td>
+          <td><a class="btn btn-ghost" style="padding:6px 12px;" href="{% url 'verifier:detail' job.pk %}">View</a></td>
         </tr>
-        {% empty %}
-        <tr><td colspan="6" class="text-center text-muted py-4">
-          No verifications yet. <a href="{% url 'verifier:start' %}">Start one →</a>
-        </td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% else %}
+  <div class="empty">
+    <div class="ic">▤</div>
+    <h3>Your next clean database starts here.</h3>
+    <p>No verification jobs yet. Upload your first CSV or explore a sample.</p>
+    <div style="display:flex; gap:10px; justify-content:center;">
+      <a class="btn btn-primary" href="{% url 'verifier:start' %}">Upload a CSV ↗</a>
+      <a class="btn btn-ghost" href="{% url 'verifier:sample' %}">Try a sample file ↗</a>
+    </div>
+  </div>
+  {% endif %}
 </div>
+
+<div class="notice mt-24">
+  {% if provider_live %}
+    Live provider connected. Real account checks are performed and billed per check.
+  {% else %}
+    Demo workspace: platform checks are simulated. Connect the checknumber.ai
+    provider to run real checks. No contacts are sent to any service in demo mode.
+  {% endif %}
+</div>
+
 {% endblock %}

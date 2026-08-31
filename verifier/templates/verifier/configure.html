@@ -1,130 +1,192 @@
 {% extends "verifier/base.html" %}
 {% load verifier_extras %}
 {% block title %}Configure · Datafy{% endblock %}
+{% block crumb %}Verification{% endblock %}
 {% block content %}
-<ul class="wizard-steps">
-  <li>1. Upload</li><li class="active">2. Prepare</li><li class="active">3. Configure</li>
-  <li>4. Review</li><li>5. Process</li>
-</ul>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="mb-0">Prepare &amp; configure</h4>
-  <span class="text-muted small">{{ job.file_name }} · {{ job.total_rows }} rows</span>
-</div>
-
-<div class="card mb-4">
-  <div class="card-header">Preview</div>
-  <div class="table-responsive">
-    <table class="table table-sm table-preview mb-0">
-      <thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
-      <tbody>
-        {% for row in preview_rows %}
-        <tr>{% for c in columns %}<td>{{ row|get_item:c }}</td>{% endfor %}</tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div class="page-head">
+  <div>
+    <div class="eyebrow">One file. One complete workflow.</div>
+    <h1 class="display">Let's clean up your database.</h1>
+    <p class="lead">Choose your checks, and keep every column intact.</p>
   </div>
+  <a class="btn btn-primary" href="{% url 'verifier:start' %}">+ New verification</a>
 </div>
 
-<form method="post">
-  {% csrf_token %}
-  <div class="row g-4">
-    <div class="col-lg-6">
-      <div class="card h-100"><div class="card-body">
-        <h6 class="text-uppercase text-muted small mb-3">Contact data</h6>
-        <div class="mb-3">
-          <label class="form-label">Data type</label>
-          <select name="contact_type" id="contact_type" class="form-select">
-            {% for value, label in contact_types %}
-            <option value="{{ value }}" {% if job.contact_type == value %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
+{% if not provider_live %}
+<div class="notice mt-24" style="margin-bottom:24px;">
+  Live verification is not connected. Runs use a clearly-labeled simulation —
+  no real account or contact validity is checked.
+</div>
+{% endif %}
+
+<div class="layout-rail">
+  <div>
+    <form method="post" id="configForm">
+      {% csrf_token %}
+
+      <!-- 01 Uploaded -->
+      <div class="section">
+        <div class="section-title">
+          <span class="section-num">01</span><h3>Your database</h3>
+          <a class="right" href="{% url 'verifier:start' %}">Replace file</a>
         </div>
-        <div class="mb-3">
-          <label class="form-label">Contact column</label>
-          <select name="contact_column" class="form-select" required>
-            <option value="">— select —</option>
-            {% for c in columns %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
-          </select>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="badge ok pill">✓ Uploaded</span>
+          <strong>{{ job.file_name }}</strong>
+          <span style="color:var(--muted);">· {{ job.total_rows }} rows · {{ columns|length }} columns</span>
         </div>
-        <div id="phone-opts">
-          <div class="mb-3">
-            <label class="form-label">Default country code
-              <span class="text-muted small">(for numbers without one)</span></label>
-            <input type="text" name="default_region" class="form-control"
-                   placeholder="e.g. US, GB, BD" maxlength="2" value="US">
+        <div class="table-wrap" style="margin-top:16px; border:1px solid var(--line-soft); border-radius:10px;">
+          <table class="table table-preview">
+            <thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+            <tbody>
+              {% for row in preview_rows %}
+              <tr>{% for c in columns %}<td>{{ row|get_item:c }}</td>{% endfor %}</tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 02 Prepare -->
+      <div class="section">
+        <div class="section-title"><span class="section-num">02</span><h3>Prepare your contacts</h3></div>
+        <div class="grid-2">
+          <div class="field">
+            <label class="label">Data type</label>
+            <select name="contact_type" id="contact_type" class="select">
+              {% for value, label in contact_types %}
+              <option value="{{ value }}" {% if job.contact_type == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
           </div>
-          <div class="mb-3">
-            <label class="form-label">Country column <span class="text-muted small">(optional, for mixed-country files)</span></label>
-            <select name="country_column" class="form-select">
-              <option value="">— none —</option>
+          <div class="field">
+            <label class="label">Contact column</label>
+            <select name="contact_column" class="select" required>
+              <option value="">— select column —</option>
               {% for c in columns %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
             </select>
           </div>
         </div>
-      </div></div>
-    </div>
-
-    <div class="col-lg-6">
-      <div class="card h-100"><div class="card-body">
-        <h6 class="text-uppercase text-muted small mb-3">Verification steps</h6>
-        <div class="mb-3">
-          <label class="form-label">Number of steps</label>
-          <select name="num_steps" id="num_steps" class="form-select">
-            <option value="1">1 step</option>
-            <option value="2">2 steps</option>
-            <option value="3">3 steps</option>
-          </select>
+        <div id="phone-opts">
+          <div class="grid-2">
+            <div class="field">
+              <label class="label">Default country code <span class="hint">(for numbers without one)</span></label>
+              <select name="default_region" class="select" id="default_region">
+                <option value="BD">Bangladesh (+880)</option>
+                <option value="US" selected>United States (+1)</option>
+                <option value="GB">United Kingdom (+44)</option>
+                <option value="IN">India (+91)</option>
+                <option value="PK">Pakistan (+92)</option>
+                <option value="AE">United Arab Emirates (+971)</option>
+                <option value="SA">Saudi Arabia (+966)</option>
+                <option value="MY">Malaysia (+60)</option>
+                <option value="ID">Indonesia (+62)</option>
+                <option value="NG">Nigeria (+234)</option>
+                <option value="">— none (require + prefix) —</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="label">Country column <span class="hint">(optional, mixed-country files)</span></label>
+              <select name="country_column" class="select">
+                <option value="">— none —</option>
+                {% for c in columns %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <p class="help">Existing international codes are preserved. Ambiguous local
+             numbers with no country are skipped.</p>
         </div>
+      </div>
+
+      <!-- 03 Choose -->
+      <div class="section">
+        <div class="section-title"><span class="section-num">03</span><h3>Choose your verification</h3></div>
+        <p class="help" style="margin-top:-8px; margin-bottom:16px;">Only contacts passing a
+           step continue to the next. A contact must pass every step to count as valid.</p>
+
+        <label class="label">Number of steps</label>
+        <div class="segmented" id="stepSeg" style="margin-bottom:18px;">
+          <button type="button" class="seg-btn active" data-n="1">1 step</button>
+          <button type="button" class="seg-btn" data-n="2">2 steps</button>
+          <button type="button" class="seg-btn" data-n="3">3 steps</button>
+        </div>
+        <input type="hidden" name="num_steps" id="num_steps" value="1">
         <div id="steps"></div>
-        <p class="text-muted small mb-0 mt-2">Sequential filtering: each step only
-          checks contacts that passed the previous one. A contact must pass
-          <strong>every</strong> selected step to count as valid.</p>
-      </div></div>
-    </div>
+      </div>
+    </form>
   </div>
 
-  <div class="mt-4">
-    <button class="btn btn-primary btn-lg">Continue to review</button>
-  </div>
-</form>
+  <!-- Right rail -->
+  <aside class="rail">
+    <div class="card card-pad">
+      <h2 class="section-heading">Your run at a glance</h2>
+      <div class="rail-list">
+        <div class="rail-row"><span class="k">Original rows</span><span class="v">{{ job.total_rows }}</span></div>
+        <div class="rail-row"><span class="k">Columns preserved</span><span class="v">{{ columns|length }}</span></div>
+        <div class="rail-row"><span class="k">Verification steps</span><span class="v" id="railSteps">1</span></div>
+        <div class="rail-row"><span class="k">Matching</span><span class="v">Automatic</span></div>
+      </div>
+      <p class="help">Eligible-contact and skipped counts are computed on the next screen.</p>
+      <button class="btn btn-primary btn-block" form="configForm">Continue to review ↗</button>
+    </div>
+
+    <div class="card card-pad">
+      <h2 class="section-heading">Built to keep the details.</h2>
+      <ul class="checklist">
+        <li>Original columns retained</li>
+        <li>Duplicates checked once</li>
+        <li>Results matched automatically</li>
+        <li>TXT and CSV downloads</li>
+      </ul>
+    </div>
+  </aside>
+</div>
 
 <script>
   const PHONE_SERVICES = [{% for k,l,t in phone_services %}{key:"{{k}}",label:"{{l}}"},{% endfor %}];
   const EMAIL_SERVICES = [{% for k,l,t in email_services %}{key:"{{k}}",label:"{{l}}"},{% endfor %}];
 
+  const numStepsInput = document.getElementById('num_steps');
   function currentServices() {
     return document.getElementById('contact_type').value === 'email'
       ? EMAIL_SERVICES : PHONE_SERVICES;
   }
   function renderSteps() {
-    const n = parseInt(document.getElementById('num_steps').value, 10);
+    const n = parseInt(numStepsInput.value, 10);
     const services = currentServices();
     const container = document.getElementById('steps');
     const prev = {};
     container.querySelectorAll('select').forEach(s => prev[s.name] = s.value);
     container.innerHTML = '';
     for (let i = 1; i <= n; i++) {
-      const opts = services.map(s =>
-        `<option value="${s.key}">${s.label}</option>`).join('');
-      const div = document.createElement('div');
-      div.className = 'input-group mb-2';
-      div.innerHTML =
-        `<span class="input-group-text">Step ${i}</span>
-         <select name="service_${i}" class="form-select" required>
+      const opts = services.map(s => `<option value="${s.key}">${s.label}</option>`).join('');
+      const wrap = document.createElement('div');
+      wrap.className = 'input-step';
+      wrap.innerHTML =
+        `<span class="tag">Step ${i}</span>
+         <select name="service_${i}" class="select" required>
            <option value="">— select service —</option>${opts}
          </select>`;
-      container.appendChild(div);
-      if (prev['service_'+i]) div.querySelector('select').value = prev['service_'+i];
+      container.appendChild(wrap);
+      if (prev['service_'+i]) wrap.querySelector('select').value = prev['service_'+i];
     }
+    document.getElementById('railSteps').textContent = n;
   }
   function onTypeChange() {
     document.getElementById('phone-opts').style.display =
       document.getElementById('contact_type').value === 'email' ? 'none' : 'block';
     renderSteps();
   }
+  document.querySelectorAll('#stepSeg .seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#stepSeg .seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      numStepsInput.value = btn.dataset.n;
+      renderSteps();
+    });
+  });
   document.getElementById('contact_type').addEventListener('change', onTypeChange);
-  document.getElementById('num_steps').addEventListener('change', renderSteps);
   onTypeChange();
 </script>
 {% endblock %}

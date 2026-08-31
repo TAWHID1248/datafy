@@ -2,13 +2,13 @@
 job detail with live progress, downloads, and history."""
 
 from django.contrib import messages
+from django.core.files.base import ContentFile
 from django.db.models import Count, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from . import catalog
+from . import catalog, samples
 from .models import (
     ContactType,
     JobStatus,
@@ -17,6 +17,7 @@ from .models import (
     StepResult,
     VerificationJob,
 )
+from .providers import get_provider
 from .services import csv_utils, orchestrator
 
 
@@ -32,6 +33,7 @@ def dashboard(request):
             for k in totals:
                 totals[k] += c[k]
     context = {
+        "nav": "dashboard",
         "total_files": jobs.count(),
         "total_contacts": sum(j.eligible_contacts for j in jobs),
         "totals": totals,
@@ -39,8 +41,17 @@ def dashboard(request):
             status__in=[JobStatus.QUEUED, JobStatus.PROCESSING]
         ),
         "recent": jobs[:8],
+        "balance": _provider_balance(),
     }
     return render(request, "verifier/dashboard.html", context)
+
+
+def _provider_balance():
+    """Best-effort remaining provider credit; None if unavailable."""
+    try:
+        return get_provider().balance()
+    except Exception:  # noqa: BLE001 - dashboard must never fail on this
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -70,12 +81,10 @@ def verification_start(request):
             status=JobStatus.DRAFT,
         )
         # Re-wrap the already-read bytes so the FileField stores it.
-        from django.core.files.base import ContentFile
-
         job.stored_file.save(upload.name, ContentFile(file_bytes), save=True)
         return redirect("verifier:configure", pk=job.pk)
 
-    return render(request, "verifier/start.html")
+    return render(request, "verifier/start.html", {"nav": "verification"})
 
 
 def _preview(job, limit=8):
@@ -131,6 +140,7 @@ def job_configure(request, pk):
         return redirect("verifier:review", pk=job.pk)
 
     context = {
+        "nav": "verification",
         "job": job,
         "columns": columns,
         "preview_rows": preview_rows,
@@ -153,6 +163,7 @@ def job_review(request, pk):
     flagged = job.contacts.filter(is_eligible=False)
     flag_summary = flagged.values("flag_reason").annotate(n=Count("id"))
     context = {
+        "nav": "verification",
         "job": job,
         "steps": job.steps.all(),
         "flag_summary": flag_summary,
@@ -166,6 +177,7 @@ def job_review(request, pk):
 def job_detail(request, pk):
     job = get_object_or_404(VerificationJob, pk=pk)
     context = {
+        "nav": "history",
         "job": job,
         "steps": job.steps.all(),
         "counts": (
@@ -257,4 +269,54 @@ def history(request):
         jobs = jobs.filter(
             Q(file_name__icontains=q) | Q(steps__service_label__icontains=q)
         ).distinct()
-    return render(request, "verifier/history.html", {"jobs": jobs, "q": q})
+    return render(request, "verifier/history.html",
+                  {"nav": "history", "jobs": jobs, "q": q})
+
+
+# --------------------------------------------------------------------------- #
+# Sample data, deletion, retention
+# --------------------------------------------------------------------------- #
+def use_sample(request):
+    """Create a job from the bundled sample CSV and jump into configuration."""
+    columns, rows = csv_utils.read_csv(samples.SAMPLE_CSV.encode("utf-8"))
+    job = VerificationJob.objects.create(
+        file_name=samples.SAMPLE_FILENAME,
+        contact_type=ContactType.PHONE,
+        columns=columns,
+        total_rows=len(rows),
+        status=JobStatus.DRAFT,
+    )
+    job.stored_file.save(
+        samples.SAMPLE_FILENAME,
+        ContentFile(samples.SAMPLE_CSV.encode("utf-8")),
+        save=True,
+    )
+    messages.success(request, "Loaded a sample CSV — configure and run it.")
+    return redirect("verifier:configure", pk=job.pk)
+
+
+@require_POST
+def delete_job(request, pk):
+    job = get_object_or_404(VerificationJob, pk=pk)
+    name = job.file_name
+    if job.stored_file:
+        job.stored_file.delete(save=False)
+    job.delete()
+    messages.success(request, f"Deleted “{name}” and its results.")
+    return redirect("verifier:history")
+
+
+@require_POST
+def clear_history(request):
+    """Delete all finished jobs (retention/cleanup). Running jobs are kept."""
+    jobs = VerificationJob.objects.exclude(
+        status__in=[JobStatus.QUEUED, JobStatus.PROCESSING]
+    )
+    n = 0
+    for job in jobs:
+        if job.stored_file:
+            job.stored_file.delete(save=False)
+        job.delete()
+        n += 1
+    messages.success(request, f"Cleared {n} job{'' if n == 1 else 's'} from history.")
+    return redirect("verifier:history")

@@ -1,32 +1,91 @@
 {% extends "verifier/base.html" %}
-{% block title %}Upload · Datafy{% endblock %}
+{% block title %}Verification · Datafy{% endblock %}
+{% block crumb %}Verification{% endblock %}
 {% block content %}
-<ul class="wizard-steps">
-  <li class="active">1. Upload</li>
-  <li>2. Prepare</li>
-  <li>3. Configure</li>
-  <li>4. Review</li>
-  <li>5. Process</li>
-</ul>
 
-<div class="card">
-  <div class="card-body">
-    <h4 class="card-title mb-3">Upload the original database</h4>
-    <p class="text-muted">Upload a CSV file. The original file and every row are
-      preserved; verification results are matched back to it exactly.</p>
-    <form method="post" enctype="multipart/form-data">
+<div class="page-head">
+  <div>
+    <div class="eyebrow">One file. One complete workflow.</div>
+    <h1 class="display">Let's clean up your database.</h1>
+    <p class="lead">Upload a CSV, choose your checks, and keep every column intact.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'verifier:start' %}">+ New verification</a>
+</div>
+
+{% if not provider_live %}
+<div class="notice mt-24" style="margin-bottom:24px;">
+  Live verification is not connected. Runs use a clearly-labeled simulation —
+  no real account or contact validity is checked.
+</div>
+{% endif %}
+
+<div class="layout-rail">
+  <div>
+    <form method="post" enctype="multipart/form-data" id="uploadForm">
       {% csrf_token %}
-      <div class="mb-3">
-        <input type="file" name="file" accept=".csv" class="form-control form-control-lg" required>
-      </div>
-      <div class="form-check mb-3">
-        <input class="form-check-input" type="checkbox" id="authz" required>
-        <label class="form-check-label small text-muted" for="authz">
-          I am authorized to process the contact data in this file.
+      <div class="section">
+        <div class="section-title">
+          <span class="section-num">01</span>
+          <h3>Upload your database</h3>
+          <a class="right" href="{% url 'verifier:sample' %}">Use sample CSV</a>
+        </div>
+        <label class="dropzone" for="fileInput" style="display:block; cursor:pointer;">
+          <div class="up">⬆</div>
+          <div class="big">Drop your CSV here, or browse files</div>
+          <div class="meta">CSV format · up to 50 MB · original columns preserved</div>
+          <input type="file" name="file" id="fileInput" accept=".csv" required>
         </label>
+        <div class="field" style="margin-top:18px;">
+          <label style="display:flex; gap:9px; align-items:flex-start; font-weight:400; color:var(--muted); font-size:13px;">
+            <input type="checkbox" required style="width:auto; margin-top:2px;">
+            I am authorized to process the contact data in this file.
+          </label>
+        </div>
       </div>
-      <button class="btn btn-primary btn-lg">Upload &amp; continue</button>
+
+      <div class="section" style="opacity:.6;">
+        <div class="section-title"><span class="section-num">02</span><h3>Prepare your contacts</h3></div>
+        <p class="help" style="margin:0;">Choose your data type, contact column and country settings — available after upload.</p>
+      </div>
+
+      <div class="section" style="opacity:.6;">
+        <div class="section-title"><span class="section-num">03</span><h3>Choose your verification</h3></div>
+        <p class="help" style="margin:0;">Pick 1–3 services to run in sequence — available after upload.</p>
+      </div>
     </form>
   </div>
+
+  <aside class="rail">
+    <div class="card card-pad">
+      <h2 class="section-heading">Your run at a glance</h2>
+      <div class="rail-list">
+        <div class="rail-row"><span class="k">Original rows</span><span class="v">—</span></div>
+        <div class="rail-row"><span class="k">Unique eligible contacts</span><span class="v">—</span></div>
+        <div class="rail-row"><span class="k">Missing / format skipped</span><span class="v">—</span></div>
+        <div class="rail-row"><span class="k">Verification steps</span><span class="v">1</span></div>
+        <div class="rail-row"><span class="k">Matching</span><span class="v">Automatic</span></div>
+      </div>
+      <p class="help">All original columns and duplicate rows stay in your complete CSV.</p>
+      <button class="btn btn-primary btn-block" form="uploadForm" style="margin-top:8px;">Upload &amp; continue ↗</button>
+    </div>
+
+    <div class="card card-pad">
+      <h2 class="section-heading">Built to keep the details.</h2>
+      <ul class="checklist">
+        <li>Original columns retained</li>
+        <li>Duplicates checked once</li>
+        <li>Results matched automatically</li>
+        <li>TXT and CSV downloads</li>
+      </ul>
+    </div>
+  </aside>
 </div>
+
+<script>
+  document.getElementById('fileInput').addEventListener('change', function () {
+    if (this.files.length) {
+      this.closest('.dropzone').querySelector('.big').textContent = this.files[0].name;
+    }
+  });
+</script>
 {% endblock %}

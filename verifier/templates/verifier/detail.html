@@ -1,45 +1,53 @@
 {% extends "verifier/base.html" %}
 {% block title %}{{ job.file_name }} · Datafy{% endblock %}
+{% block crumb %}History{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+
+<div class="page-head">
   <div>
-    <h4 class="mb-0">{{ job.file_name }}</h4>
-    <span class="text-muted small">{{ job.get_contact_type_display }} ·
-      {{ job.eligible_contacts }} eligible contacts · started {{ job.created_at|date:"M j, H:i" }}</span>
+    <div class="eyebrow">Verification run</div>
+    <h1 class="display sm">{{ job.file_name }}</h1>
+    <p class="lead">{{ job.get_contact_type_display }} · {{ job.eligible_contacts }} eligible contacts ·
+       started {{ job.created_at|date:"M j, H:i" }}</p>
   </div>
-  <span id="job-status" class="badge fs-6 text-bg-secondary">{{ job.get_status_display }}</span>
+  <div style="display:flex; gap:10px; align-items:center;">
+    <span id="job-status" class="badge pill" style="font-size:14px; padding:8px 16px;">{{ job.get_status_display }}</span>
+    {% if not is_active %}
+    <form method="post" action="{% url 'verifier:delete' job.pk %}"
+          onsubmit="return confirm('Delete this job and its results?');">
+      {% csrf_token %}
+      <button class="btn btn-ghost" style="color:var(--bad);">Delete</button>
+    </form>
+    {% endif %}
+  </div>
 </div>
 
-<div id="stage-bar" class="mb-4 {% if not is_active %}d-none{% endif %}">
-  <div class="d-flex align-items-center gap-2">
-    <div class="spinner-border spinner-border-sm text-primary"></div>
-    <span id="stage-text">{{ job.stage|default:"Working…" }}</span>
-  </div>
+<div id="stage-bar" class="notice mt-24 {% if not is_active %}hide{% endif %}" style="display:flex; align-items:center; gap:10px; background:#eef3f6; border-color:#d3e0e6; color:#3a5561;">
+  <span class="spinner"></span><span id="stage-text">{{ job.stage|default:"Working…" }}</span>
 </div>
 
 {% if job.error %}
-<div class="alert alert-warning"><strong>Incomplete:</strong> {{ job.error }}</div>
+<div class="alert alert-danger mt-24"><strong>Incomplete:</strong> {{ job.error }}</div>
 {% endif %}
 
-<div class="card mb-4">
-  <div class="card-header">Steps</div>
-  <div class="table-responsive">
-    <table class="table mb-0" id="steps-table">
+<div class="card mt-24">
+  <div class="card-head"><h3>Steps</h3></div>
+  <div class="table-wrap">
+    <table class="table" id="steps-table">
       <thead><tr>
         <th>#</th><th>Service</th><th>Status</th>
-        <th class="text-end">Checked</th><th class="text-end text-success">Valid</th>
-        <th class="text-end text-danger">Invalid</th><th class="text-end text-warning">Unresolved</th>
+        <th class="num">Checked</th><th class="num">Valid</th><th class="num">Invalid</th><th class="num">Unresolved</th>
       </tr></thead>
       <tbody>
         {% for step in steps %}
         <tr data-order="{{ step.order }}">
-          <td><span class="badge rounded-pill text-bg-primary step-badge">{{ step.order }}</span></td>
-          <td>{{ step.service_label }}</td>
-          <td class="col-status"><span class="badge text-bg-light">{{ step.get_status_display }}</span></td>
-          <td class="text-end col-checked">{{ step.checked }}</td>
-          <td class="text-end col-valid">{{ step.valid }}</td>
-          <td class="text-end col-invalid">{{ step.invalid }}</td>
-          <td class="text-end col-unresolved">{{ step.unresolved }}</td>
+          <td><span class="step-badge">{{ step.order }}</span></td>
+          <td style="font-weight:600;">{{ step.service_label }}</td>
+          <td class="col-status"><span class="badge">{{ step.get_status_display }}</span></td>
+          <td class="num col-checked">{{ step.checked }}</td>
+          <td class="num col-valid" style="color:var(--ok);">{{ step.valid }}</td>
+          <td class="num col-invalid" style="color:var(--bad);">{{ step.invalid }}</td>
+          <td class="num col-unresolved" style="color:var(--warn);">{{ step.unresolved }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -47,84 +55,72 @@
   </div>
 </div>
 
-<div id="results-block" class="{% if not counts %}d-none{% endif %}">
-  <div class="row g-3 mb-4">
-    <div class="col-4"><div class="card text-center"><div class="card-body">
-      <div class="text-muted small">Valid</div>
-      <div class="display-6 text-success" id="c-valid">{{ counts.valid|default:0 }}</div>
-    </div></div></div>
-    <div class="col-4"><div class="card text-center"><div class="card-body">
-      <div class="text-muted small">Invalid</div>
-      <div class="display-6 text-danger" id="c-invalid">{{ counts.invalid|default:0 }}</div>
-    </div></div></div>
-    <div class="col-4"><div class="card text-center"><div class="card-body">
-      <div class="text-muted small">Unresolved</div>
-      <div class="display-6 text-warning" id="c-unresolved">{{ counts.unresolved|default:0 }}</div>
-    </div></div></div>
+<div id="results-block" class="{% if not counts %}hide{% endif %}">
+  <div class="grid-4 mt-24" style="grid-template-columns:repeat(3,1fr);">
+    <div class="stat"><div class="k">Valid</div><div class="v ok" id="c-valid">{{ counts.valid|default:0 }}</div><div class="c">Passed every step</div></div>
+    <div class="stat"><div class="k">Invalid</div><div class="v bad" id="c-invalid">{{ counts.invalid|default:0 }}</div><div class="c">Explicit negative</div></div>
+    <div class="stat"><div class="k">Unresolved</div><div class="v warn" id="c-unresolved">{{ counts.unresolved|default:0 }}</div><div class="c">Unknown / error</div></div>
   </div>
 
   {% if job.actual_cost %}
-  <p class="text-muted small">Provider cost: {{ job.actual_cost }} (estimated {{ job.estimated_cost|default:"—" }})</p>
+  <p class="help">Provider cost: {{ job.actual_cost }} (estimated {{ job.estimated_cost|default:"—" }})</p>
   {% elif job.estimated_cost %}
-  <p class="text-muted small">Estimated provider cost: {{ job.estimated_cost }}</p>
+  <p class="help">Estimated provider cost: {{ job.estimated_cost }}</p>
   {% endif %}
 
-  <div class="card">
-    <div class="card-header">Downloads</div>
-    <div class="list-group list-group-flush">
-      <a href="{% url 'verifier:download' job.pk 'valid' %}" class="list-group-item list-group-item-action d-flex justify-content-between">
-        <span>Valid contacts <span class="text-muted small">— unique, passed all steps</span></span><span class="badge text-bg-secondary">TXT</span></a>
-      <a href="{% url 'verifier:download' job.pk 'all' %}" class="list-group-item list-group-item-action d-flex justify-content-between">
-        <span>All results <span class="text-muted small">— per-step status per contact</span></span><span class="badge text-bg-secondary">TXT</span></a>
-      <a href="{% url 'verifier:download' job.pk 'complete_valid' %}" class="list-group-item list-group-item-action d-flex justify-content-between">
-        <span>Complete valid database <span class="text-muted small">— original rows for valid contacts</span></span><span class="badge text-bg-secondary">CSV</span></a>
-      <a href="{% url 'verifier:download' job.pk 'complete_all' %}" class="list-group-item list-group-item-action d-flex justify-content-between">
-        <span>Complete database — all results <span class="text-muted small">— every original row</span></span><span class="badge text-bg-secondary">CSV</span></a>
-    </div>
+  <div class="card mt-24">
+    <div class="card-head"><h3>Downloads</h3></div>
+    {% with dl='list-group' %}
+    <a class="dl-row" href="{% url 'verifier:download' job.pk 'valid' %}">
+      <span><strong>Valid contacts</strong> <span class="hint">— unique, passed all steps</span></span><span class="badge">TXT</span></a>
+    <a class="dl-row" href="{% url 'verifier:download' job.pk 'all' %}">
+      <span><strong>All results</strong> <span class="hint">— per-step status per contact</span></span><span class="badge">TXT</span></a>
+    <a class="dl-row" href="{% url 'verifier:download' job.pk 'complete_valid' %}">
+      <span><strong>Complete valid database</strong> <span class="hint">— original rows for valid contacts</span></span><span class="badge">CSV</span></a>
+    <a class="dl-row" href="{% url 'verifier:download' job.pk 'complete_all' %}">
+      <span><strong>Complete database — all results</strong> <span class="hint">— every original row</span></span><span class="badge">CSV</span></a>
+    {% endwith %}
   </div>
 </div>
+
+<style>
+  .dl-row { display:flex; justify-content:space-between; align-items:center;
+    padding:15px 24px; border-bottom:1px solid var(--line-soft); color:var(--ink); }
+  .dl-row:last-child { border-bottom:none; }
+  .dl-row:hover { background:#fafaf7; text-decoration:none; }
+</style>
 {% endblock %}
 
 {% block scripts %}
 <script>
   const STATUS_URL = "{% url 'verifier:status' job.pk %}";
-  const badgeClass = { completed: 'text-bg-success', partial: 'text-bg-warning',
-    failed: 'text-bg-danger', processing: 'text-bg-info', queued: 'text-bg-secondary' };
-
+  const badgeClass = { completed:'ok', partial:'warn', failed:'bad', processing:'info', queued:'' };
   function apply(data) {
     const badge = document.getElementById('job-status');
     badge.textContent = data.status_display;
-    badge.className = 'badge fs-6 ' + (badgeClass[data.status] || 'text-bg-secondary');
+    badge.className = 'badge pill ' + (badgeClass[data.status] || '');
     document.getElementById('stage-text').textContent = data.stage || 'Working…';
-    document.getElementById('stage-bar').classList.toggle('d-none', !data.active);
-
+    document.getElementById('stage-bar').classList.toggle('hide', !data.active);
     data.steps.forEach(s => {
       const row = document.querySelector(`#steps-table tr[data-order="${s.order}"]`);
       if (!row) return;
-      row.querySelector('.col-status').innerHTML =
-        `<span class="badge text-bg-light">${s.status}</span>`;
+      row.querySelector('.col-status').innerHTML = `<span class="badge">${s.status}</span>`;
       row.querySelector('.col-checked').textContent = s.checked;
       row.querySelector('.col-valid').textContent = s.valid;
       row.querySelector('.col-invalid').textContent = s.invalid;
       row.querySelector('.col-unresolved').textContent = s.unresolved;
     });
-
     if (data.counts) {
-      document.getElementById('results-block').classList.remove('d-none');
+      document.getElementById('results-block').classList.remove('hide');
       document.getElementById('c-valid').textContent = data.counts.valid;
       document.getElementById('c-invalid').textContent = data.counts.invalid;
       document.getElementById('c-unresolved').textContent = data.counts.unresolved;
     }
     return data.active;
   }
-
   function poll() {
     fetch(STATUS_URL).then(r => r.json()).then(data => {
-      const active = apply(data);
-      if (active) setTimeout(poll, 2000);
-      else if (data.counts === null && !data.active) {
-        // terminal without counts (e.g. failed before any step) — stop polling.
-      }
+      if (apply(data)) setTimeout(poll, 2000);
     }).catch(() => setTimeout(poll, 4000));
   }
   {% if is_active %}poll();{% endif %}

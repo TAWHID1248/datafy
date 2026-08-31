@@ -1,47 +1,80 @@
 {% extends "verifier/base.html" %}
 {% block title %}History · Datafy{% endblock %}
+{% block crumb %}History{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="mb-0">History</h4>
-  <form class="d-flex" method="get">
-    <input class="form-control me-2" type="search" name="q" value="{{ q }}"
-           placeholder="Search file or service">
-    <button class="btn btn-outline-secondary">Search</button>
-  </form>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Every file, accounted for</div>
+    <h1 class="display">Verification history</h1>
+    <p class="lead">Revisit your runs and download complete records, any time.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'verifier:start' %}">+ New verification</a>
 </div>
 
-<div class="card">
-  <div class="table-responsive">
-    <table class="table mb-0">
+<div class="card mt-24">
+  <div class="card-head">
+    <form method="get" style="flex:1; max-width:360px;">
+      <input type="search" name="q" value="{{ q }}" placeholder="Search file name or service…">
+    </form>
+    {% if jobs %}
+    <form method="post" action="{% url 'verifier:clear_history' %}"
+          onsubmit="return confirm('Delete all finished jobs and their files? This cannot be undone.');">
+      {% csrf_token %}
+      <button class="btn btn-ghost" style="padding:8px 14px;">Clear local history</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if jobs %}
+  <div class="table-wrap">
+    <table class="table">
       <thead><tr>
         <th>File</th><th>Created</th><th>Type</th><th>Services</th>
-        <th>Steps</th><th class="text-end">Contacts</th>
-        <th>Results (V/I/U)</th><th>Status</th><th></th>
+        <th class="num">Steps</th><th class="num">Contacts</th>
+        <th>Results (V / I / U)</th><th>Status</th><th></th>
       </tr></thead>
       <tbody>
         {% for job in jobs %}
         {% with c=job.final_counts %}
         <tr>
-          <td>{{ job.file_name }}</td>
-          <td class="small text-muted">{{ job.created_at|date:"M j Y, H:i" }}</td>
+          <td style="font-weight:600;">{{ job.file_name }}</td>
+          <td style="color:var(--muted);">{{ job.created_at|date:"M j Y, H:i" }}</td>
           <td>{{ job.get_contact_type_display }}</td>
-          <td class="small text-muted">{{ job.service_order }}</td>
-          <td>{{ job.steps.count }}</td>
-          <td class="text-end">{{ job.eligible_contacts }}</td>
-          <td class="small">
-            <span class="text-success">{{ c.valid }}</span> /
-            <span class="text-danger">{{ c.invalid }}</span> /
-            <span class="text-warning">{{ c.unresolved }}</span>
+          <td style="color:var(--muted);">{{ job.service_order }}</td>
+          <td class="num">{{ job.steps.count }}</td>
+          <td class="num">{{ job.eligible_contacts }}</td>
+          <td>
+            <span style="color:var(--ok);">{{ c.valid }}</span> /
+            <span style="color:var(--bad);">{{ c.invalid }}</span> /
+            <span style="color:var(--warn);">{{ c.unresolved }}</span>
           </td>
-          <td><span class="badge text-bg-secondary">{{ job.get_status_display }}</span></td>
-          <td><a href="{% url 'verifier:detail' job.pk %}" class="btn btn-sm btn-outline-primary">View</a></td>
+          <td><span class="badge">{{ job.get_status_display }}</span></td>
+          <td style="white-space:nowrap;">
+            <a class="btn btn-ghost" style="padding:6px 12px;" href="{% url 'verifier:detail' job.pk %}">View</a>
+            <form method="post" action="{% url 'verifier:delete' job.pk %}" style="display:inline;"
+                  onsubmit="return confirm('Delete “{{ job.file_name|escapejs }}” and its results?');">
+              {% csrf_token %}
+              <button class="btn btn-ghost" style="padding:6px 10px; color:var(--bad);" title="Delete">✕</button>
+            </form>
+          </td>
         </tr>
         {% endwith %}
-        {% empty %}
-        <tr><td colspan="9" class="text-center text-muted py-4">No jobs found.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% else %}
+  <div class="empty">
+    <div class="ic">▤</div>
+    <h3>Your next clean database starts here.</h3>
+    <p>{% if q %}No jobs match "{{ q }}".{% else %}No verification jobs yet. Upload your first CSV or explore a sample.{% endif %}</p>
+    <div style="display:flex; gap:10px; justify-content:center;">
+      <a class="btn btn-primary" href="{% url 'verifier:start' %}">Upload a CSV ↗</a>
+      <a class="btn btn-ghost" href="{% url 'verifier:sample' %}">Try a sample file ↗</a>
+    </div>
+  </div>
+  {% endif %}
 </div>
+
 {% endblock %}
