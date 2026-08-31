@@ -1,0 +1,130 @@
+{% extends "verifier/base.html" %}
+{% load verifier_extras %}
+{% block title %}Configure · Datafy{% endblock %}
+{% block content %}
+<ul class="wizard-steps">
+  <li>1. Upload</li><li class="active">2. Prepare</li><li class="active">3. Configure</li>
+  <li>4. Review</li><li>5. Process</li>
+</ul>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Prepare &amp; configure</h4>
+  <span class="text-muted small">{{ job.file_name }} · {{ job.total_rows }} rows</span>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">Preview</div>
+  <div class="table-responsive">
+    <table class="table table-sm table-preview mb-0">
+      <thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for row in preview_rows %}
+        <tr>{% for c in columns %}<td>{{ row|get_item:c }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  <div class="row g-4">
+    <div class="col-lg-6">
+      <div class="card h-100"><div class="card-body">
+        <h6 class="text-uppercase text-muted small mb-3">Contact data</h6>
+        <div class="mb-3">
+          <label class="form-label">Data type</label>
+          <select name="contact_type" id="contact_type" class="form-select">
+            {% for value, label in contact_types %}
+            <option value="{{ value }}" {% if job.contact_type == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Contact column</label>
+          <select name="contact_column" class="form-select" required>
+            <option value="">— select —</option>
+            {% for c in columns %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+          </select>
+        </div>
+        <div id="phone-opts">
+          <div class="mb-3">
+            <label class="form-label">Default country code
+              <span class="text-muted small">(for numbers without one)</span></label>
+            <input type="text" name="default_region" class="form-control"
+                   placeholder="e.g. US, GB, BD" maxlength="2" value="US">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Country column <span class="text-muted small">(optional, for mixed-country files)</span></label>
+            <select name="country_column" class="form-select">
+              <option value="">— none —</option>
+              {% for c in columns %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card h-100"><div class="card-body">
+        <h6 class="text-uppercase text-muted small mb-3">Verification steps</h6>
+        <div class="mb-3">
+          <label class="form-label">Number of steps</label>
+          <select name="num_steps" id="num_steps" class="form-select">
+            <option value="1">1 step</option>
+            <option value="2">2 steps</option>
+            <option value="3">3 steps</option>
+          </select>
+        </div>
+        <div id="steps"></div>
+        <p class="text-muted small mb-0 mt-2">Sequential filtering: each step only
+          checks contacts that passed the previous one. A contact must pass
+          <strong>every</strong> selected step to count as valid.</p>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="mt-4">
+    <button class="btn btn-primary btn-lg">Continue to review</button>
+  </div>
+</form>
+
+<script>
+  const PHONE_SERVICES = [{% for k,l,t in phone_services %}{key:"{{k}}",label:"{{l}}"},{% endfor %}];
+  const EMAIL_SERVICES = [{% for k,l,t in email_services %}{key:"{{k}}",label:"{{l}}"},{% endfor %}];
+
+  function currentServices() {
+    return document.getElementById('contact_type').value === 'email'
+      ? EMAIL_SERVICES : PHONE_SERVICES;
+  }
+  function renderSteps() {
+    const n = parseInt(document.getElementById('num_steps').value, 10);
+    const services = currentServices();
+    const container = document.getElementById('steps');
+    const prev = {};
+    container.querySelectorAll('select').forEach(s => prev[s.name] = s.value);
+    container.innerHTML = '';
+    for (let i = 1; i <= n; i++) {
+      const opts = services.map(s =>
+        `<option value="${s.key}">${s.label}</option>`).join('');
+      const div = document.createElement('div');
+      div.className = 'input-group mb-2';
+      div.innerHTML =
+        `<span class="input-group-text">Step ${i}</span>
+         <select name="service_${i}" class="form-select" required>
+           <option value="">— select service —</option>${opts}
+         </select>`;
+      container.appendChild(div);
+      if (prev['service_'+i]) div.querySelector('select').value = prev['service_'+i];
+    }
+  }
+  function onTypeChange() {
+    document.getElementById('phone-opts').style.display =
+      document.getElementById('contact_type').value === 'email' ? 'none' : 'block';
+    renderSteps();
+  }
+  document.getElementById('contact_type').addEventListener('change', onTypeChange);
+  document.getElementById('num_steps').addEventListener('change', renderSteps);
+  onTypeChange();
+</script>
+{% endblock %}

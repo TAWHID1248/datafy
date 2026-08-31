@@ -1,0 +1,132 @@
+{% extends "verifier/base.html" %}
+{% block title %}{{ job.file_name }} · Datafy{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="mb-0">{{ job.file_name }}</h4>
+    <span class="text-muted small">{{ job.get_contact_type_display }} ·
+      {{ job.eligible_contacts }} eligible contacts · started {{ job.created_at|date:"M j, H:i" }}</span>
+  </div>
+  <span id="job-status" class="badge fs-6 text-bg-secondary">{{ job.get_status_display }}</span>
+</div>
+
+<div id="stage-bar" class="mb-4 {% if not is_active %}d-none{% endif %}">
+  <div class="d-flex align-items-center gap-2">
+    <div class="spinner-border spinner-border-sm text-primary"></div>
+    <span id="stage-text">{{ job.stage|default:"Working…" }}</span>
+  </div>
+</div>
+
+{% if job.error %}
+<div class="alert alert-warning"><strong>Incomplete:</strong> {{ job.error }}</div>
+{% endif %}
+
+<div class="card mb-4">
+  <div class="card-header">Steps</div>
+  <div class="table-responsive">
+    <table class="table mb-0" id="steps-table">
+      <thead><tr>
+        <th>#</th><th>Service</th><th>Status</th>
+        <th class="text-end">Checked</th><th class="text-end text-success">Valid</th>
+        <th class="text-end text-danger">Invalid</th><th class="text-end text-warning">Unresolved</th>
+      </tr></thead>
+      <tbody>
+        {% for step in steps %}
+        <tr data-order="{{ step.order }}">
+          <td><span class="badge rounded-pill text-bg-primary step-badge">{{ step.order }}</span></td>
+          <td>{{ step.service_label }}</td>
+          <td class="col-status"><span class="badge text-bg-light">{{ step.get_status_display }}</span></td>
+          <td class="text-end col-checked">{{ step.checked }}</td>
+          <td class="text-end col-valid">{{ step.valid }}</td>
+          <td class="text-end col-invalid">{{ step.invalid }}</td>
+          <td class="text-end col-unresolved">{{ step.unresolved }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="results-block" class="{% if not counts %}d-none{% endif %}">
+  <div class="row g-3 mb-4">
+    <div class="col-4"><div class="card text-center"><div class="card-body">
+      <div class="text-muted small">Valid</div>
+      <div class="display-6 text-success" id="c-valid">{{ counts.valid|default:0 }}</div>
+    </div></div></div>
+    <div class="col-4"><div class="card text-center"><div class="card-body">
+      <div class="text-muted small">Invalid</div>
+      <div class="display-6 text-danger" id="c-invalid">{{ counts.invalid|default:0 }}</div>
+    </div></div></div>
+    <div class="col-4"><div class="card text-center"><div class="card-body">
+      <div class="text-muted small">Unresolved</div>
+      <div class="display-6 text-warning" id="c-unresolved">{{ counts.unresolved|default:0 }}</div>
+    </div></div></div>
+  </div>
+
+  {% if job.actual_cost %}
+  <p class="text-muted small">Provider cost: {{ job.actual_cost }} (estimated {{ job.estimated_cost|default:"—" }})</p>
+  {% elif job.estimated_cost %}
+  <p class="text-muted small">Estimated provider cost: {{ job.estimated_cost }}</p>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-header">Downloads</div>
+    <div class="list-group list-group-flush">
+      <a href="{% url 'verifier:download' job.pk 'valid' %}" class="list-group-item list-group-item-action d-flex justify-content-between">
+        <span>Valid contacts <span class="text-muted small">— unique, passed all steps</span></span><span class="badge text-bg-secondary">TXT</span></a>
+      <a href="{% url 'verifier:download' job.pk 'all' %}" class="list-group-item list-group-item-action d-flex justify-content-between">
+        <span>All results <span class="text-muted small">— per-step status per contact</span></span><span class="badge text-bg-secondary">TXT</span></a>
+      <a href="{% url 'verifier:download' job.pk 'complete_valid' %}" class="list-group-item list-group-item-action d-flex justify-content-between">
+        <span>Complete valid database <span class="text-muted small">— original rows for valid contacts</span></span><span class="badge text-bg-secondary">CSV</span></a>
+      <a href="{% url 'verifier:download' job.pk 'complete_all' %}" class="list-group-item list-group-item-action d-flex justify-content-between">
+        <span>Complete database — all results <span class="text-muted small">— every original row</span></span><span class="badge text-bg-secondary">CSV</span></a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const STATUS_URL = "{% url 'verifier:status' job.pk %}";
+  const badgeClass = { completed: 'text-bg-success', partial: 'text-bg-warning',
+    failed: 'text-bg-danger', processing: 'text-bg-info', queued: 'text-bg-secondary' };
+
+  function apply(data) {
+    const badge = document.getElementById('job-status');
+    badge.textContent = data.status_display;
+    badge.className = 'badge fs-6 ' + (badgeClass[data.status] || 'text-bg-secondary');
+    document.getElementById('stage-text').textContent = data.stage || 'Working…';
+    document.getElementById('stage-bar').classList.toggle('d-none', !data.active);
+
+    data.steps.forEach(s => {
+      const row = document.querySelector(`#steps-table tr[data-order="${s.order}"]`);
+      if (!row) return;
+      row.querySelector('.col-status').innerHTML =
+        `<span class="badge text-bg-light">${s.status}</span>`;
+      row.querySelector('.col-checked').textContent = s.checked;
+      row.querySelector('.col-valid').textContent = s.valid;
+      row.querySelector('.col-invalid').textContent = s.invalid;
+      row.querySelector('.col-unresolved').textContent = s.unresolved;
+    });
+
+    if (data.counts) {
+      document.getElementById('results-block').classList.remove('d-none');
+      document.getElementById('c-valid').textContent = data.counts.valid;
+      document.getElementById('c-invalid').textContent = data.counts.invalid;
+      document.getElementById('c-unresolved').textContent = data.counts.unresolved;
+    }
+    return data.active;
+  }
+
+  function poll() {
+    fetch(STATUS_URL).then(r => r.json()).then(data => {
+      const active = apply(data);
+      if (active) setTimeout(poll, 2000);
+      else if (data.counts === null && !data.active) {
+        // terminal without counts (e.g. failed before any step) — stop polling.
+      }
+    }).catch(() => setTimeout(poll, 4000));
+  }
+  {% if is_active %}poll();{% endif %}
+</script>
+{% endblock %}

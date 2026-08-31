@@ -1,0 +1,32 @@
+{% extends "verifier/base.html" %}
+{% block title %}Upload · Datafy{% endblock %}
+{% block content %}
+<ul class="wizard-steps">
+  <li class="active">1. Upload</li>
+  <li>2. Prepare</li>
+  <li>3. Configure</li>
+  <li>4. Review</li>
+  <li>5. Process</li>
+</ul>
+
+<div class="card">
+  <div class="card-body">
+    <h4 class="card-title mb-3">Upload the original database</h4>
+    <p class="text-muted">Upload a CSV file. The original file and every row are
+      preserved; verification results are matched back to it exactly.</p>
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div class="mb-3">
+        <input type="file" name="file" accept=".csv" class="form-control form-control-lg" required>
+      </div>
+      <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" id="authz" required>
+        <label class="form-check-label small text-muted" for="authz">
+          I am authorized to process the contact data in this file.
+        </label>
+      </div>
+      <button class="btn btn-primary btn-lg">Upload &amp; continue</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

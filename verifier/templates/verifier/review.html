@@ -1,0 +1,54 @@
+{% extends "verifier/base.html" %}
+{% block title %}Review · Datafy{% endblock %}
+{% block content %}
+<ul class="wizard-steps">
+  <li>1. Upload</li><li>2. Prepare</li><li>3. Configure</li>
+  <li class="active">4. Review</li><li>5. Process</li>
+</ul>
+
+<h4 class="mb-3">Review &amp; start</h4>
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card"><div class="card-body">
+      <table class="table table-borderless mb-0">
+        <tr><th class="text-muted">File</th><td>{{ job.file_name }}</td></tr>
+        <tr><th class="text-muted">Contact column</th><td>{{ job.contact_column }}</td></tr>
+        <tr><th class="text-muted">Data type</th><td>{{ job.get_contact_type_display }}</td></tr>
+        {% if job.contact_type == 'phone' %}
+        <tr><th class="text-muted">Default country</th><td>{{ job.default_region|default:"—" }}</td></tr>
+        {% if job.country_column %}<tr><th class="text-muted">Country column</th><td>{{ job.country_column }}</td></tr>{% endif %}
+        {% endif %}
+        <tr><th class="text-muted">Total rows</th><td>{{ job.total_rows }}</td></tr>
+        <tr><th class="text-muted">Unique eligible contacts</th><td><strong>{{ job.eligible_contacts }}</strong></td></tr>
+        <tr><th class="text-muted">Flagged (missing/malformed)</th>
+          <td>
+            {{ job.flagged_contacts }}
+            {% if flag_summary %}
+            <span class="text-muted small">
+              ({% for f in flag_summary %}{{ f.flag_reason }}: {{ f.n }}{% if not forloop.last %}, {% endif %}{% endfor %})
+            </span>{% endif %}
+          </td></tr>
+        <tr><th class="text-muted">Validity rule</th><td>Must pass every selected step (AND)</td></tr>
+      </table>
+    </div></div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card"><div class="card-body">
+      <h6 class="text-uppercase text-muted small mb-3">Verification order</h6>
+      <ol class="list-group list-group-numbered">
+        {% for step in steps %}
+        <li class="list-group-item d-flex justify-content-between">
+          {{ step.service_label }}
+          <span class="badge text-bg-light">{{ step.task_type }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+      <form method="post" class="mt-4">
+        {% csrf_token %}
+        <button class="btn btn-success btn-lg w-100">Start verification</button>
+      </form>
+      <a href="{% url 'verifier:configure' job.pk %}" class="btn btn-link w-100 mt-2">← Back to configure</a>
+    </div></div>
+  </div>
+</div>
+{% endblock %}
