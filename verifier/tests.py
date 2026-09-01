@@ -58,6 +58,19 @@ class NormalizeTests(TestCase):
         self.assertEqual(val, "")
         self.assertEqual(reason, "no country code")
 
+    def test_bad_row_region_falls_back_to_default(self):
+        # Country column pointing at non-region data (e.g. the phone column
+        # itself) must not poison the parse.
+        val, reason = normalize_phone(
+            "12403507481", default_region="US", row_region="12403507481"
+        )
+        self.assertEqual(val, "+12403507481")
+        self.assertEqual(reason, "")
+
+    def test_valid_row_region_overrides_default(self):
+        val, _ = normalize_phone("2071838750", default_region="US", row_region="gb")
+        self.assertEqual(val, "+442071838750")
+
     def test_email_normalization(self):
         self.assertEqual(normalize_email("  Foo@Bar.COM ")[0], "foo@bar.com")
         self.assertEqual(normalize_email("nope")[1], "malformed email")

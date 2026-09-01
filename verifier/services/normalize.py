@@ -31,7 +31,13 @@ def normalize_phone(raw, default_region=None, row_region=None):
     if not cleaned:
         return "", "no digits"
 
-    region = (row_region or "").strip().upper() or default_region or None
+    # A country column pointing at non-region data (a phone column, a country
+    # name, garbage) must not poison the parse — ignore anything that isn't a
+    # known ISO region code and fall back to the job default.
+    region = (row_region or "").strip().upper()
+    if region not in phonenumbers.SUPPORTED_REGIONS:
+        region = None
+    region = region or default_region or None
     try:
         # A leading + means it already carries a country code; pass region=None.
         parsed = phonenumbers.parse(
