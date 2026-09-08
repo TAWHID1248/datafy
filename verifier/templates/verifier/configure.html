@@ -103,7 +103,8 @@
       <div class="section">
         <div class="section-title"><span class="section-num">03</span><h3>Choose your verification</h3></div>
         <p class="help" style="margin-top:-8px; margin-bottom:16px;">Only contacts passing a
-           step continue to the next. A contact must pass every step to count as valid.</p>
+           step continue to the next. A contact must pass every step to count as valid.
+           WhatsApp and Telegram offer richer checkers (activity, profile) at a higher price per 10,000 numbers.</p>
 
         <label class="label">Number of steps</label>
         <div class="segmented" id="stepSeg" style="margin-bottom:18px;">
@@ -146,11 +147,29 @@
 <script>
   const PHONE_SERVICES = [{% for k,l,t in phone_services %}{key:"{{k}}",label:"{{l}}"},{% endfor %}];
   const EMAIL_SERVICES = [{% for k,l,t in email_services %}{key:"{{k}}",label:"{{l}}"},{% endfor %}];
+  // {contact_type: {service_key: [{key,label,price}, ...]}}
+  const CHECKERS = {{ checkers_json|safe }};
 
   const numStepsInput = document.getElementById('num_steps');
   function currentServices() {
     return document.getElementById('contact_type').value === 'email'
       ? EMAIL_SERVICES : PHONE_SERVICES;
+  }
+  function checkersFor(serviceKey) {
+    const ct = document.getElementById('contact_type').value === 'email' ? 'email' : 'phone';
+    return (CHECKERS[ct] && CHECKERS[ct][serviceKey]) || [];
+  }
+  // Fill the checker dropdown for a step based on its selected service.
+  // Hidden when the service only has one checker.
+  function renderCheckers(wrap, i, keep) {
+    const svc = wrap.querySelector(`select[name="service_${i}"]`).value;
+    const sel = wrap.querySelector(`select[name="checker_${i}"]`);
+    const tiers = checkersFor(svc);
+    sel.innerHTML = tiers.map(t =>
+      `<option value="${t.key}">${t.label}${t.price ? ' · ' + t.price + ' / 10k' : ''}</option>`
+    ).join('');
+    if (keep && tiers.some(t => t.key === keep)) sel.value = keep;
+    sel.style.display = tiers.length > 1 ? '' : 'none';
   }
   function renderSteps() {
     const n = parseInt(numStepsInput.value, 10);
@@ -167,9 +186,13 @@
         `<span class="tag">Step ${i}</span>
          <select name="service_${i}" class="select" required>
            <option value="">— select service —</option>${opts}
-         </select>`;
+         </select>
+         <select name="checker_${i}" class="select" title="Checker type" style="display:none"></select>`;
       container.appendChild(wrap);
-      if (prev['service_'+i]) wrap.querySelector('select').value = prev['service_'+i];
+      const svcSel = wrap.querySelector(`select[name="service_${i}"]`);
+      if (prev['service_'+i]) svcSel.value = prev['service_'+i];
+      renderCheckers(wrap, i, prev['checker_'+i]);
+      svcSel.addEventListener('change', () => renderCheckers(wrap, i));
     }
     document.getElementById('railSteps').textContent = n;
   }

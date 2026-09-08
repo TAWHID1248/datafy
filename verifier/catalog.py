@@ -18,15 +18,54 @@ edits elsewhere in the codebase.
 PHONE = "phone"
 EMAIL = "email"
 
-# service_key -> {label, task_types: {contact_type: provider_task_type_code}}
+DEFAULT_CHECKER = "basic"
+
+# service_key -> {
+#   label,
+#   task_types: {contact_type: provider_task_type_code},   # the basic checker
+#   checkers:   {checker_key: {label, price, task_types: {...}}}  # optional extra tiers
+# }
+#
+# Every service implicitly has a "basic" checker built from ``task_types``.
+# ``checkers`` lists the higher tiers the provider sells for the same platform
+# (e.g. WhatsApp "Number Activity" = ``ws_active``). All tiers return the same
+# ``number``/``activated`` core columns, so the result parser is shared; the
+# extra columns the richer tiers return are not persisted.
+# ``price`` is the provider's list price per 10,000 numbers, for display only.
 SERVICES = {
     "whatsapp": {
         "label": "WhatsApp",
         "task_types": {PHONE: "ws"},
+        "price": "$0.9",
+        "checkers": {
+            "activity": {
+                "label": "Number Activity",
+                "price": "$1.8",
+                "task_types": {PHONE: "ws_active"},
+            },
+            "profile": {
+                "label": "Number Profile",
+                "price": "$3.8",
+                "task_types": {PHONE: "ws_avatar"},
+            },
+        },
     },
     "telegram": {
         "label": "Telegram",
         "task_types": {PHONE: "tg"},
+        "price": "$1.5",
+        "checkers": {
+            "activity": {
+                "label": "Number Activity",
+                "price": "$3.5",
+                "task_types": {PHONE: "tg_active"},
+            },
+            "profile": {
+                "label": "Number Profile",
+                "price": "$4.5",
+                "task_types": {PHONE: "tg_avatar"},
+            },
+        },
     },
     "amazon": {
         "label": "Amazon",
@@ -55,6 +94,27 @@ SERVICES = {
 }
 
 
+def checkers_for(service_key, contact_type):
+    """Return [(checker_key, label, price, task_type), ...] for a service.
+
+    The basic checker always comes first; richer tiers follow in catalog order.
+    Only tiers that support ``contact_type`` are included.
+    """
+    meta = SERVICES.get(service_key)
+    if not meta:
+        return []
+    out = []
+    basic = meta["task_types"].get(contact_type)
+    if basic:
+        label = "Email Checker" if contact_type == EMAIL else "Number Checker"
+        out.append((DEFAULT_CHECKER, label, meta.get("price", ""), basic))
+    for key, tier in meta.get("checkers", {}).items():
+        task_type = tier["task_types"].get(contact_type)
+        if task_type:
+            out.append((key, tier["label"], tier.get("price", ""), task_type))
+    return out
+
+
 def services_for(contact_type):
     """Return [(key, label, task_type), ...] supporting the given contact type."""
     out = []
@@ -65,12 +125,19 @@ def services_for(contact_type):
     return out
 
 
-def task_type_for(service_key, contact_type):
+def task_type_for(service_key, contact_type, checker=DEFAULT_CHECKER):
     """Resolve the provider task_type code, or None if the combo is unsupported."""
-    meta = SERVICES.get(service_key)
-    if not meta:
-        return None
-    return meta["task_types"].get(contact_type)
+    for key, _label, _price, task_type in checkers_for(service_key, contact_type):
+        if key == (checker or DEFAULT_CHECKER):
+            return task_type
+    return None
+
+
+def checker_label_for(service_key, contact_type, checker=DEFAULT_CHECKER):
+    for key, label, _price, _tt in checkers_for(service_key, contact_type):
+        if key == (checker or DEFAULT_CHECKER):
+            return label
+    return checker or DEFAULT_CHECKER
 
 
 def label_for(service_key):

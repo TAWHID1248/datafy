@@ -9,8 +9,10 @@ Implements the documented file-based async contract:
             result_url, actual_amount:{amount,currency}}
   GET   {base}/balance
 
-Results are downloaded from ``result_url`` (a ZIP) and contain two columns:
-``number`` (or ``email``) and ``activated``.
+Results are downloaded from ``result_url`` (a ZIP) and always contain the
+columns ``number`` (or ``phone`` / ``email``) and ``activated``. The richer
+checkers (``ws_active``, ``ws_avatar``, ``tg_active``, ``tg_avatar``) add more
+columns; those are ignored, only ``activated`` drives the outcome.
 
 Status mapping (see the provider's own guidance: "treat only an explicit
 determined result as a positive or negative classification; undetermined /
@@ -43,6 +45,19 @@ from .base import (
 
 _VALID = {"yes", "true", "activated", "active", "1"}
 _INVALID = {"no", "false", "not_activated", "bad", "inactive", "0"}
+
+
+def _match_key(value: str) -> str:
+    """Join key for matching submitted contacts to result rows.
+
+    The provider echoes phone numbers without the leading ``+`` (and may add
+    other formatting), so compare digits only. Emails compare case-insensitively.
+    """
+    v = (value or "").strip()
+    if "@" in v:
+        return v.lower()
+    digits = "".join(ch for ch in v if ch.isdigit())
+    return digits or v
 
 
 def _map_status(raw: str) -> str:
@@ -130,14 +145,23 @@ class CheckNumberProvider(VerificationProvider):
         rows = self._download_rows(poll_result.result_url)
         found = {}
         for row in rows:
-            value = (row.get("number") or row.get("email") or "").strip()
+            # Richer checkers return extra columns and may capitalise headers
+            # (Telegram profile exports "Phone"), so look up case-insensitively.
+            norm = {(k or "").strip().lower(): (v or "") for k, v in row.items()}
+            value = (
+                norm.get("number") or norm.get("phone") or norm.get("email") or ""
+            ).strip()
             if value:
-                found[value] = _map_status(row.get("activated", ""))
+                found[_match_key(value)] = norm.get("activated", "").strip()
         statuses = []
         for c in contacts:
-            if c in found:
+            key = _match_key(c)
+            if key in found:
+                raw = found[key]
                 statuses.append(
-                    ContactStatus(value=c, outcome=found[c], raw_status=found[c])
+                    ContactStatus(
+                        value=c, outcome=_map_status(raw), raw_status=raw
+                    )
                 )
             else:
                 # Submitted but absent from results -> unchecked, not invalid.
@@ -155,13 +179,37 @@ class CheckNumberProvider(VerificationProvider):
         # result_url points at a ZIP; fall back to raw text if it is not zipped.
         try:
             zf = zipfile.ZipFile(io.BytesIO(content))
-            name = zf.namelist()[0]
-            text = zf.read(name).decode("utf-8", errors="replace")
+            text = self._pick_member(zf)
         except zipfile.BadZipFile:
             text = content.decode("utf-8", errors="replace")
         sample = text[:4096]
         delimiter = "\t" if sample.count("\t") > sample.count(",") else ","
         return list(csv.DictReader(io.StringIO(text), delimiter=delimiter))
+
+    @staticmethod
+    def _pick_member(zf):
+        """Choose the results table from the export ZIP.
+
+        The export contains several files (``registered.txt``,
+        ``unregistered.txt``, ``all.csv``, ``result.xlsx``); only ``all.csv``
+        carries the full ``number,activated`` table, so prefer the member whose
+        header row mentions ``activated``, then any ``.csv``, then the first
+        file at all.
+        """
+        csv_fallback = None
+        first = None
+        for name in zf.namelist():
+            if name.endswith("/"):
+                continue
+            text = zf.read(name).decode("utf-8", errors="replace")
+            if first is None:
+                first = text
+            header = text.split("\n", 1)[0].lower()
+            if "activated" in header:
+                return text
+            if csv_fallback is None and name.lower().endswith(".csv"):
+                csv_fallback = text
+        return csv_fallback if csv_fallback is not None else (first or "")
 
     def balance(self):
         try:

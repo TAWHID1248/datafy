@@ -1,6 +1,8 @@
 """Views: dashboard, the upload -> configure -> review -> process wizard,
 job detail with live progress, downloads, and history."""
 
+import json
+
 from django.contrib import messages
 from django.core.files.base import ContentFile
 from django.db.models import Count, Q
@@ -116,24 +118,33 @@ def job_configure(request, pk):
             svc = request.POST.get(f"service_{i}", "").strip()
             if not svc:
                 continue
-            task_type = catalog.task_type_for(svc, job.contact_type)
+            checker = (
+                request.POST.get(f"checker_{i}", "").strip()
+                or catalog.DEFAULT_CHECKER
+            )
+            task_type = catalog.task_type_for(svc, job.contact_type, checker)
             if not task_type:
                 messages.error(
                     request,
                     f"{catalog.label_for(svc)} does not support "
-                    f"{job.get_contact_type_display().lower()} checks.",
+                    f"{job.get_contact_type_display().lower()} checks "
+                    f"with the selected checker.",
                 )
                 return redirect("verifier:configure", pk=job.pk)
-            chosen.append((svc, task_type))
+            chosen.append((svc, checker, task_type))
         if not chosen:
             messages.error(request, "Choose at least one verification service.")
             return redirect("verifier:configure", pk=job.pk)
 
         job.save()
-        for order, (svc, task_type) in enumerate(chosen, start=1):
+        for order, (svc, checker, task_type) in enumerate(chosen, start=1):
             JobStep.objects.create(
                 job=job, order=order, service_key=svc,
                 service_label=catalog.label_for(svc), task_type=task_type,
+                checker=checker,
+                checker_label=catalog.checker_label_for(
+                    svc, job.contact_type, checker
+                ),
             )
         # Normalize + dedup now so the review page can show real counts.
         orchestrator.prepare_job(job)
@@ -146,6 +157,16 @@ def job_configure(request, pk):
         "preview_rows": preview_rows,
         "phone_services": catalog.services_for(catalog.PHONE),
         "email_services": catalog.services_for(catalog.EMAIL),
+        "checkers_json": json.dumps({
+            ct: {
+                key: [
+                    {"key": ck, "label": cl, "price": cp}
+                    for ck, cl, cp, _tt in catalog.checkers_for(key, ct)
+                ]
+                for key, _label, _tt in catalog.services_for(ct)
+            }
+            for ct in (catalog.PHONE, catalog.EMAIL)
+        }),
         "contact_types": ContactType.choices,
     }
     return render(request, "verifier/configure.html", context)
@@ -196,7 +217,7 @@ def job_status(request, pk):
     steps = [
         {
             "order": s.order,
-            "label": s.service_label,
+            "label": s.display_label,
             "status": s.get_status_display(),
             "checked": s.checked,
             "valid": s.valid,
@@ -264,7 +285,7 @@ def step_download(request, pk, order):
     job = get_object_or_404(VerificationJob, pk=pk)
     step = get_object_or_404(JobStep, job=job, order=order)
     base = job.file_name.rsplit(".", 1)[0]
-    slug = step.service_label.lower().replace(" ", "_")
+    slug = step.display_label.lower().replace(" · ", "_").replace(" ", "_")
     valid_only = request.GET.get("valid") == "1"
     suffix = "valid" if valid_only else "checked"
     return _txt(

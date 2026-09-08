@@ -247,3 +247,109 @@ class ViewTests(TestCase):
         self.c.post(reverse("verifier:clear_history"))
         self.assertFalse(VerificationJob.objects.filter(pk=done.pk).exists())
         self.assertTrue(VerificationJob.objects.filter(pk=running.pk).exists())
+
+
+class CatalogCheckerTests(TestCase):
+    def test_basic_checker_is_default(self):
+        self.assertEqual(catalog.task_type_for("whatsapp", "phone"), "ws")
+        self.assertEqual(catalog.task_type_for("whatsapp", "phone", "basic"), "ws")
+        self.assertEqual(catalog.task_type_for("telegram", "phone"), "tg")
+
+    def test_richer_checkers_resolve(self):
+        self.assertEqual(catalog.task_type_for("whatsapp", "phone", "activity"), "ws_active")
+        self.assertEqual(catalog.task_type_for("whatsapp", "phone", "profile"), "ws_avatar")
+        self.assertEqual(catalog.task_type_for("telegram", "phone", "activity"), "tg_active")
+        self.assertEqual(catalog.task_type_for("telegram", "phone", "profile"), "tg_avatar")
+
+    def test_unknown_checker_is_rejected(self):
+        self.assertIsNone(catalog.task_type_for("whatsapp", "phone", "nope"))
+        self.assertIsNone(catalog.task_type_for("amazon", "email", "activity"))
+
+    def test_checkers_for_lists_basic_first(self):
+        keys = [c[0] for c in catalog.checkers_for("whatsapp", "phone")]
+        self.assertEqual(keys, ["basic", "activity", "profile"])
+        keys = [c[0] for c in catalog.checkers_for("amazon", "email")]
+        self.assertEqual(keys, ["basic"])
+        self.assertEqual(catalog.checkers_for("spotify", "phone"), [])
+
+
+@override_settings(MEDIA_ROOT=_MEDIA, VERIFIER_PROVIDER="mock")
+class CheckerSelectionViewTests(TestCase):
+    def setUp(self):
+        self.c = Client()
+        self.c.post(reverse("verifier:start"), {
+            "file": SimpleUploadedFile("contacts.csv", SAMPLE.encode()),
+        })
+        self.job = VerificationJob.objects.latest("id")
+
+    def _configure(self, **extra):
+        data = {
+            "contact_type": "phone", "contact_column": "phone",
+            "default_region": "US", "num_steps": "1", "service_1": "whatsapp",
+        }
+        data.update(extra)
+        return self.c.post(reverse("verifier:configure", args=[self.job.pk]), data)
+
+    def test_defaults_to_basic_checker_when_omitted(self):
+        self.assertEqual(self._configure().status_code, 302)
+        step = self.job.steps.get()
+        self.assertEqual((step.task_type, step.checker), ("ws", "basic"))
+        self.assertEqual(step.display_label, "WhatsApp")
+
+    def test_selected_checker_sets_task_type_and_label(self):
+        self.assertEqual(self._configure(checker_1="activity").status_code, 302)
+        step = self.job.steps.get()
+        self.assertEqual((step.task_type, step.checker), ("ws_active", "activity"))
+        self.assertEqual(step.checker_label, "Number Activity")
+        self.assertEqual(step.display_label, "WhatsApp · Number Activity")
+
+    def test_invalid_checker_rejected(self):
+        self._configure(checker_1="bogus")
+        self.assertEqual(self.job.steps.count(), 0)
+
+    def test_configure_page_exposes_checker_options(self):
+        r = self.c.get(reverse("verifier:configure", args=[self.job.pk]))
+        self.assertContains(r, "Number Activity")
+        self.assertContains(r, 'name="checker_${i}"')
+
+
+class CheckNumberParseTests(TestCase):
+    """Result parsing must cope with the richer checkers' extra/capitalised columns."""
+
+    def _provider(self):
+        from unittest import mock
+        from .providers import checknumber
+        with override_settings(CHECKNUMBER_API_KEY="k", CHECKNUMBER_BASE_URL="http://x"):
+            p = checknumber.CheckNumberProvider()
+        return p, mock
+
+    def _fetch(self, csv_text):
+        from .providers.base import PollResult
+        p, mock = self._provider()
+        with mock.patch.object(p, "_download_rows") as dl:
+            import csv, io
+            dl.return_value = list(csv.DictReader(io.StringIO(csv_text)))
+            res = p.fetch(PollResult(state="exported", done=True, result_url="u"),
+                          ["+14155552671", "+14155552672", "+14155552673"])
+        return {s.value: s.outcome for s in res.statuses}
+
+    def test_basic_columns(self):
+        out = self._fetch("number,activated\n14155552671,yes\n14155552672,no\n")
+        self.assertEqual(out["+14155552671"], Outcome.VALID)
+        self.assertEqual(out["+14155552672"], Outcome.INVALID)
+        self.assertEqual(out["+14155552673"], Outcome.UNRESOLVED)
+
+    def test_activity_extra_columns_ignored(self):
+        out = self._fetch(
+            "number,activated,activetime,activedays,business\n"
+            "14155552671,yes,2026-01-01,3,false\n14155552672,no,,,\n"
+        )
+        self.assertEqual(out["+14155552671"], Outcome.VALID)
+        self.assertEqual(out["+14155552672"], Outcome.INVALID)
+
+    def test_profile_capitalised_phone_header(self):
+        out = self._fetch(
+            "Phone,activated,uid,Gender,Age\n14155552671,yes,1,m,30\n14155552672,no,,,\n"
+        )
+        self.assertEqual(out["+14155552671"], Outcome.VALID)
+        self.assertEqual(out["+14155552672"], Outcome.INVALID)

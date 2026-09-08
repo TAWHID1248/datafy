@@ -43,7 +43,7 @@
         {% for step in steps %}
         <tr data-order="{{ step.order }}">
           <td><span class="step-badge">{{ step.order }}</span></td>
-          <td style="font-weight:600;">{{ step.service_label }}</td>
+          <td style="font-weight:600;">{{ step.display_label }}</td>
           <td class="col-status"><span class="badge">{{ step.get_status_display }}</span></td>
           <td class="num col-checked">{{ step.checked }}</td>
           <td class="num col-valid" style="color:var(--ok);">{{ step.valid }}</td>

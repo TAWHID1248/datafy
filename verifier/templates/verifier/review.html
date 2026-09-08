@@ -49,7 +49,7 @@
       <div class="flow">
         {% for step in steps %}
         <div class="flow-card">
-          <div class="t"><span class="step-badge">{{ step.order }}</span> {{ step.service_label }}</div>
+          <div class="t"><span class="step-badge">{{ step.order }}</span> {{ step.display_label }}</div>
           <div class="s">provider: {{ step.task_type }}</div>
         </div>
         {% if not forloop.last %}<div class="flow-arrow">↓</div>{% endif %}

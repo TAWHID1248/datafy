@@ -97,7 +97,7 @@ class VerificationJob(models.Model):
 
     @property
     def service_order(self):
-        return " → ".join(s.service_label for s in self.steps.all())
+        return " → ".join(s.display_label for s in self.steps.all())
 
     def final_counts(self):
         """Return {valid, invalid, unresolved} over eligible contacts."""
@@ -126,6 +126,10 @@ class JobStep(models.Model):
     service_key = models.CharField(max_length=40)
     service_label = models.CharField(max_length=60)
     task_type = models.CharField(max_length=60)  # provider code, e.g. amazon_email
+    # Which checker tier of the service (see catalog.checkers_for): "basic",
+    # "activity", "profile", ...  ``checker_label`` is the human name.
+    checker = models.CharField(max_length=40, default="basic")
+    checker_label = models.CharField(max_length=60, blank=True, default="")
 
     status = models.CharField(
         max_length=20, choices=StepStatus.choices, default=StepStatus.PENDING
@@ -145,8 +149,15 @@ class JobStep(models.Model):
         ordering = ["order"]
         unique_together = [("job", "order")]
 
+    @property
+    def display_label(self):
+        """'WhatsApp' for the basic checker, 'WhatsApp · Number Activity' otherwise."""
+        if self.checker and self.checker != "basic" and self.checker_label:
+            return f"{self.service_label} · {self.checker_label}"
+        return self.service_label
+
     def __str__(self):
-        return f"Step {self.order}: {self.service_label}"
+        return f"Step {self.order}: {self.display_label}"
 
 
 class Contact(models.Model):
