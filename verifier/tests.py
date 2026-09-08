@@ -353,3 +353,25 @@ class CheckNumberParseTests(TestCase):
         )
         self.assertEqual(out["+14155552671"], Outcome.VALID)
         self.assertEqual(out["+14155552672"], Outcome.INVALID)
+
+
+class RegionListTests(TestCase):
+    def test_every_supported_region_has_a_name_and_dial_code(self):
+        import phonenumbers
+        from . import regions
+        popular, rest = regions.region_choices()
+        codes = {r["code"] for r in popular + rest}
+        self.assertEqual(codes, set(phonenumbers.SUPPORTED_REGIONS))
+        self.assertTrue(all(r["dial"] > 0 and r["name"] != r["code"] for r in popular + rest))
+        self.assertEqual([r["code"] for r in popular][:2], ["US", "GB"])
+
+    def test_configure_page_lists_all_countries(self):
+        c = Client()
+        c.post(reverse("verifier:start"), {
+            "file": SimpleUploadedFile("contacts.csv", SAMPLE.encode()),
+        })
+        job = VerificationJob.objects.latest("id")
+        r = c.get(reverse("verifier:configure", args=[job.pk]))
+        for needle in ('value="DE">Germany (+49)', 'value="BR">Brazil (+55)',
+                       'value="JP">Japan (+81)', 'value="BD">Bangladesh (+880)'):
+            self.assertContains(r, needle)

@@ -10,7 +10,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from . import catalog, samples
+from . import catalog, regions, samples
 from .models import (
     ContactType,
     JobStatus,
@@ -150,6 +150,7 @@ def job_configure(request, pk):
         orchestrator.prepare_job(job)
         return redirect("verifier:review", pk=job.pk)
 
+    popular_regions, other_regions = regions.region_choices()
     context = {
         "nav": "verification",
         "job": job,
@@ -168,6 +169,8 @@ def job_configure(request, pk):
             for ct in (catalog.PHONE, catalog.EMAIL)
         }),
         "contact_types": ContactType.choices,
+        "popular_regions": popular_regions,
+        "other_regions": other_regions,
     }
     return render(request, "verifier/configure.html", context)
 

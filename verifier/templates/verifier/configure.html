@@ -73,16 +73,14 @@
             <div class="field">
               <label class="label">Default country code <span class="hint">(for numbers without one)</span></label>
               <select name="default_region" class="select" id="default_region">
-                <option value="BD">Bangladesh (+880)</option>
-                <option value="US" selected>United States (+1)</option>
-                <option value="GB">United Kingdom (+44)</option>
-                <option value="IN">India (+91)</option>
-                <option value="PK">Pakistan (+92)</option>
-                <option value="AE">United Arab Emirates (+971)</option>
-                <option value="SA">Saudi Arabia (+966)</option>
-                <option value="MY">Malaysia (+60)</option>
-                <option value="ID">Indonesia (+62)</option>
-                <option value="NG">Nigeria (+234)</option>
+                <optgroup label="Popular">
+                  {% for r in popular_regions %}<option value="{{ r.code }}" {% if r.code == "US" %}selected{% endif %}>{{ r.name }} (+{{ r.dial }})</option>
+                  {% endfor %}
+                </optgroup>
+                <optgroup label="All countries">
+                  {% for r in other_regions %}<option value="{{ r.code }}">{{ r.name }} (+{{ r.dial }})</option>
+                  {% endfor %}
+                </optgroup>
                 <option value="">— none (require + prefix) —</option>
               </select>
             </div>
