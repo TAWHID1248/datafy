@@ -125,7 +125,9 @@
         <div class="rail-row"><span class="k">Columns preserved</span><span class="v">{{ columns|length }}</span></div>
         <div class="rail-row"><span class="k">Verification steps</span><span class="v" id="railSteps">1</span></div>
         <div class="rail-row"><span class="k">Matching</span><span class="v">Automatic</span></div>
+        <div class="rail-row"><span class="k">Estimated cost</span><span class="v" id="railCost">—</span></div>
       </div>
+      <p class="help" id="railCostNote">Select a service to see the estimated charge.</p>
       <p class="help">Eligible-contact and skipped counts are computed on the next screen.</p>
       <button class="btn btn-primary btn-block" form="configForm">Continue to review ↗</button>
     </div>
@@ -168,6 +170,36 @@
     ).join('');
     if (keep && tiers.some(t => t.key === keep)) sel.value = keep;
     sel.style.display = tiers.length > 1 ? '' : 'none';
+    updateCost();
+  }
+  // Estimated charge for the run: each step's list price (per 10,000 numbers)
+  // applied to every original row. Later steps only check contacts that
+  // passed the previous one, so this is the maximum, not the exact amount.
+  const TOTAL_ROWS = {{ job.total_rows|default:0 }};
+  function updateCost() {
+    const out = document.getElementById('railCost');
+    const note = document.getElementById('railCostNote');
+    let total = 0, priced = 0, unpriced = 0;
+    document.querySelectorAll('#steps .input-step').forEach(wrap => {
+      const svc = wrap.querySelector('select[name^="service_"]').value;
+      if (!svc) return;
+      const ck = wrap.querySelector('select[name^="checker_"]').value;
+      const tier = checkersFor(svc).find(t => t.key === ck) || checkersFor(svc)[0];
+      const price = tier && parseFloat(String(tier.price).replace(/[^0-9.]/g, ''));
+      if (price && !isNaN(price)) { total += price * TOTAL_ROWS / 10000; priced++; }
+      else unpriced++;
+    });
+    if (!priced && !unpriced) {
+      out.textContent = '—';
+      note.textContent = 'Select a service to see the estimated charge.';
+      return;
+    }
+    out.textContent = priced ? 'up to $' + total.toFixed(2) : '—';
+    let msg = priced
+      ? `${TOTAL_ROWS.toLocaleString()} rows at the selected list prices. Later steps only check contacts that passed the step before, so the real charge is usually lower.`
+      : '';
+    if (unpriced) msg += (msg ? ' ' : '') + `${unpriced} step${unpriced > 1 ? 's have' : ' has'} no listed price and ${unpriced > 1 ? 'are' : 'is'} not included.`;
+    note.textContent = msg;
   }
   function renderSteps() {
     const n = parseInt(numStepsInput.value, 10);
@@ -191,8 +223,10 @@
       if (prev['service_'+i]) svcSel.value = prev['service_'+i];
       renderCheckers(wrap, i, prev['checker_'+i]);
       svcSel.addEventListener('change', () => renderCheckers(wrap, i));
+      wrap.querySelector(`select[name="checker_${i}"]`).addEventListener('change', updateCost);
     }
     document.getElementById('railSteps').textContent = n;
+    updateCost();
   }
   function onTypeChange() {
     document.getElementById('phone-opts').style.display =

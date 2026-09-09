@@ -312,6 +312,12 @@ class CheckerSelectionViewTests(TestCase):
         self.assertContains(r, "Number Activity")
         self.assertContains(r, 'name="checker_${i}"')
 
+    def test_configure_page_has_estimated_cost_row(self):
+        r = self.c.get(reverse("verifier:configure", args=[self.job.pk]))
+        self.assertContains(r, "Estimated cost")
+        self.assertContains(r, 'id="railCost"')
+        self.assertContains(r, f"const TOTAL_ROWS = {self.job.total_rows};")
+
 
 class CheckNumberParseTests(TestCase):
     """Result parsing must cope with the richer checkers' extra/capitalised columns."""
