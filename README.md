@@ -1,7 +1,7 @@
 # Datafy — Database Verification System
 
 Internal tool: upload a CSV of phone numbers or emails, verify them through one
-or more services (WhatsApp, Telegram, Amazon, …) via checknumber.ai, and get the
+or more services (WhatsApp, Telegram, Amazon, Gmail, Binance, … 47 in all) via checknumber.ai, and get the
 results matched back to every original row.
 
 ## Stack

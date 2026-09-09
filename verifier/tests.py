@@ -265,9 +265,36 @@ class CatalogCheckerTests(TestCase):
         self.assertIsNone(catalog.task_type_for("whatsapp", "phone", "nope"))
         self.assertIsNone(catalog.task_type_for("amazon", "email", "activity"))
 
+    def test_every_catalogued_service_has_group_price_and_task_type(self):
+        groups = {g for g, _ in catalog.GROUPS}
+        for key, meta in catalog.SERVICES.items():
+            self.assertIn(meta["group"], groups, key)
+            for ct in (catalog.PHONE, catalog.EMAIL):
+                for ck, label, price, task_type in catalog.checkers_for(key, ct):
+                    self.assertTrue(task_type, f"{key}/{ct}/{ck}")
+                    self.assertRegex(price, r"^\$\d", f"{key}/{ct}/{ck}")
+                    self.assertTrue(label, f"{key}/{ct}/{ck}")
+
+    def test_new_services_resolve_documented_task_types(self):
+        self.assertEqual(catalog.task_type_for("viber", "phone", "profile"), "viber_senior")
+        self.assertEqual(catalog.task_type_for("number", "phone"), "phoneCheck")
+        self.assertEqual(catalog.task_type_for("number", "phone", "high_value"), "high_value_users")
+        self.assertEqual(catalog.task_type_for("linkedin", "email", "profile"), "linkedin_profile")
+        self.assertEqual(catalog.task_type_for("kucoin", "phone"), "Kucoin")
+        self.assertEqual(catalog.task_type_for("gmail", "email", "avatar"), "gmail_avatar")
+        self.assertIsNone(catalog.task_type_for("gmail", "phone"))
+        self.assertEqual(catalog.checkers_for("apple", "email")[0][2], "$2")
+        self.assertEqual(catalog.checkers_for("apple", "phone")[0][2], "$1.5")
+
+    def test_services_grouped_follows_group_order(self):
+        labels = [g for g, _ in catalog.services_grouped("phone")]
+        self.assertEqual(labels, ["Messaging & social", "Phone number checks",
+                                  "Commerce & services", "Crypto exchanges"])
+        self.assertNotIn("Email accounts", labels)
+
     def test_checkers_for_lists_basic_first(self):
         keys = [c[0] for c in catalog.checkers_for("whatsapp", "phone")]
-        self.assertEqual(keys, ["basic", "activity", "profile"])
+        self.assertEqual(keys, ["basic", "advanced", "activity", "profile"])
         keys = [c[0] for c in catalog.checkers_for("amazon", "email")]
         self.assertEqual(keys, ["basic"])
         self.assertEqual(catalog.checkers_for("spotify", "phone"), [])
@@ -311,6 +338,8 @@ class CheckerSelectionViewTests(TestCase):
         r = self.c.get(reverse("verifier:configure", args=[self.job.pk]))
         self.assertContains(r, "Number Activity")
         self.assertContains(r, 'name="checker_${i}"')
+        self.assertContains(r, 'group:"Crypto exchanges"')
+        self.assertContains(r, 'key:"binance"')
 
     def test_configure_page_has_estimated_cost_row(self):
         r = self.c.get(reverse("verifier:configure", args=[self.job.pk]))

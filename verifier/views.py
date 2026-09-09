@@ -156,8 +156,8 @@ def job_configure(request, pk):
         "job": job,
         "columns": columns,
         "preview_rows": preview_rows,
-        "phone_services": catalog.services_for(catalog.PHONE),
-        "email_services": catalog.services_for(catalog.EMAIL),
+        "phone_services": catalog.services_grouped(catalog.PHONE),
+        "email_services": catalog.services_grouped(catalog.EMAIL),
         "checkers_json": json.dumps({
             ct: {
                 key: [
