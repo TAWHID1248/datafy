@@ -41,22 +41,20 @@ CONTINUE, WAIT, DONE, FAILED = "continue", "wait", "done", "failed"
 # Preparation
 # --------------------------------------------------------------------------- #
 def prepare_job(job: VerificationJob):
-    """Parse the stored CSV, build source rows, normalize + dedup contacts."""
+    """Parse the stored CSV, build source rows, normalize + dedup contacts.
+
+    Everything is written with bulk inserts inside one transaction: a 70k-row
+    upload must not cost 70k database round trips (that blew past gunicorn's
+    request timeout on Railway).
+    """
     with job.stored_file.open("rb") as fh:
         file_bytes = fh.read()
     columns, rows = csv_utils.read_csv(file_bytes)
 
-    job.columns = columns
-    job.total_rows = len(rows)
-    job.save(update_fields=["columns", "total_rows"])
-
-    # Clear any prior preparation (safe re-run).
-    job.rows.all().delete()
-    job.contacts.all().delete()
-
+    # Pass 1: normalize in memory and dedup into unsaved Contact instances.
     by_norm: dict[str, Contact] = {}
-    source_rows = []
-    for idx, row in enumerate(rows):
+    row_contacts = []  # parallel to ``rows``: the Contact each row maps to
+    for row in rows:
         raw = row.get(job.contact_column, "")
         row_region = row.get(job.country_column) if job.country_column else None
         norm, reason = normalize(
@@ -64,30 +62,47 @@ def prepare_job(job: VerificationJob):
             default_region=job.default_region or None,
             row_region=row_region,
         )
-        contact = None
         if norm:
-            contact = by_norm.get(norm)
+            key = norm
+            contact = by_norm.get(key)
             if contact is None:
-                contact = Contact.objects.create(
+                contact = Contact(
                     job=job, raw_value=str(raw).strip(),
                     normalized=norm, is_eligible=True,
                 )
-                by_norm[norm] = contact
+                by_norm[key] = contact
         else:
             # Ineligible values still become a Contact so the row keeps a link
             # and the flag is visible in the complete export. Deduped per reason.
             key = f"__flag__:{reason}:{str(raw).strip()}"
             contact = by_norm.get(key)
             if contact is None:
-                contact = Contact.objects.create(
+                contact = Contact(
                     job=job, raw_value=str(raw).strip(),
                     normalized="", is_eligible=False, flag_reason=reason,
                 )
                 by_norm[key] = contact
-        source_rows.append(
-            SourceRow(job=job, row_index=idx, data=row, contact=contact)
+        row_contacts.append(contact)
+
+    # Pass 2: persist in bulk. bulk_create sets primary keys on the instances
+    # (PostgreSQL and SQLite both support RETURNING), so the SourceRow FKs can
+    # reference the very same objects.
+    with transaction.atomic():
+        job.columns = columns
+        job.total_rows = len(rows)
+        job.save(update_fields=["columns", "total_rows"])
+
+        # Clear any prior preparation (safe re-run).
+        job.purge_prepared_data()
+
+        Contact.objects.bulk_create(list(by_norm.values()), batch_size=1000)
+        SourceRow.objects.bulk_create(
+            [
+                SourceRow(job=job, row_index=idx, data=row, contact_id=contact.pk)
+                for idx, (row, contact) in enumerate(zip(rows, row_contacts))
+            ],
+            batch_size=1000,
         )
-    SourceRow.objects.bulk_create(source_rows, batch_size=1000)
 
 
 # --------------------------------------------------------------------------- #
@@ -205,7 +220,8 @@ def _finalize(job, failed_step=None):
         (r.step_id, r.contact_id): r.outcome
         for r in StepResult.objects.filter(step__job=job)
     }
-    for contact in job.contacts.filter(is_eligible=True):
+    contacts = list(job.contacts.filter(is_eligible=True))
+    for contact in contacts:
         final = None
         for step in steps:
             outcome = results.get((step.id, contact.id))
@@ -215,7 +231,8 @@ def _finalize(job, failed_step=None):
             if outcome != Outcome.VALID:
                 break
         contact.final_outcome = final or Outcome.UNRESOLVED
-        contact.save(update_fields=["final_outcome"])
+    # One UPDATE per batch instead of one per contact.
+    Contact.objects.bulk_update(contacts, ["final_outcome"], batch_size=1000)
 
     job.stage = "Completed"
     job.completed_at = timezone.now()

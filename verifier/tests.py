@@ -109,6 +109,40 @@ class PipelineTests(TestCase):
         self.assertEqual(job.eligible_contacts, 4)
         self.assertEqual(job.flagged_contacts, 2)
 
+    def test_large_job_prepare_rerun_and_delete(self):
+        # More unique contacts than one purge chunk, so every bulk path is
+        # exercised: bulk insert, the re-prepare purge, bulk finalize, and the
+        # chunked delete that replaces Django's giant SET_NULL cascade.
+        from .models import _PURGE_CHUNK
+
+        n = _PURGE_CHUNK * 2 + 50
+        lines = ["name,phone"] + [f"u{i},+1415555{i:04d}" for i in range(n)]
+        job = VerificationJob.objects.create(
+            file_name="big.csv", contact_type=ContactType.PHONE,
+            contact_column="phone", status=JobStatus.QUEUED,
+        )
+        job.stored_file.save(
+            "big.csv", SimpleUploadedFile("big.csv", "\n".join(lines).encode())
+        )
+        JobStep.objects.create(
+            job=job, order=1, service_key="whatsapp",
+            service_label=catalog.label_for("whatsapp"),
+            task_type=catalog.task_type_for("whatsapp", "phone"),
+        )
+        orchestrator.prepare_job(job)
+        orchestrator.prepare_job(job)  # re-configure must not duplicate
+        self.assertEqual(job.rows.count(), n)
+        self.assertEqual(job.rows.filter(contact__isnull=True).count(), 0)
+        self.assertEqual(job.total_rows, n)
+
+        self._run(job)
+        self.assertEqual(job.status, JobStatus.COMPLETED)
+        self.assertEqual(job.contacts.filter(final_outcome="").count(), 0)
+
+        job.delete()
+        self.assertFalse(Contact.objects.filter(job_id=job.pk).exists())
+        self.assertFalse(SourceRow.objects.filter(job_id=job.pk).exists())
+
     def test_full_run_sequential_filtering(self):
         job = self._run(self._make_job())
         self.assertEqual(job.status, JobStatus.COMPLETED)

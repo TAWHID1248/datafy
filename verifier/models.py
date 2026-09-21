@@ -15,6 +15,10 @@ Design notes
 
 from django.db import models
 
+# Contacts are deleted this many at a time; keeps every statement well under
+# the SQL parameter limit of both SQLite and PostgreSQL.
+_PURGE_CHUNK = 1000
+
 
 class Outcome(models.TextChoices):
     """Normalized per-contact result buckets."""
@@ -82,6 +86,30 @@ class VerificationJob(models.Model):
 
     def __str__(self):
         return f"{self.file_name} ({self.get_status_display()})"
+
+    def purge_prepared_data(self):
+        """Delete this job's rows, step results, and contacts in bulk.
+
+        Django's cascade collector would load every Contact into memory and
+        null ``SourceRow.contact`` with one ``UPDATE ... WHERE contact_id IN
+        (<every contact id>)`` — SET_NULL runs that unconditionally — which
+        exceeds the SQL parameter limit (65535 on PostgreSQL, fewer on SQLite)
+        for jobs with tens of thousands of contacts. Rows and results go first
+        (no dependents, so Django fast-deletes them); contacts then go in
+        fixed-size chunks so each statement stays small.
+        """
+        self.rows.all().delete()
+        StepResult.objects.filter(step__job=self).delete()
+        contacts = Contact.objects.filter(job=self)
+        while True:
+            ids = list(contacts.values_list("pk", flat=True)[:_PURGE_CHUNK])
+            if not ids:
+                break
+            Contact.objects.filter(pk__in=ids).delete()
+
+    def delete(self, *args, **kwargs):
+        self.purge_prepared_data()
+        return super().delete(*args, **kwargs)
 
     @property
     def unique_contacts(self):
