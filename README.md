@@ -2,7 +2,7 @@
 
 Internal tool: upload a CSV of phone numbers, emails, or usernames, verify them
 through one or more services (WhatsApp, Telegram, Amazon, Gmail, Binance, … the
-full checknumber.ai catalog: 52 services, 91 checker tiers) and get the results
+full checknumber.ai catalog, 52 services and 91 tiers, plus a free offline line-type filter) and get the results
 matched back to every original row.
 
 ## Stack
@@ -71,6 +71,14 @@ verifier/
     run_worker.py            drives queued/processing jobs to completion
   views.py                   dashboard, wizard, detail+progress, downloads, history
 ```
+
+**Line Type (offline, free)** is a phone step that never calls the provider:
+libphonenumber classifies each number as mobile / landline / VoIP / toll-free…
+and the "Keep mobiles only" tier drops landlines before any paid check runs.
+Authoritative for the UK and most countries; US/Canadian numbers can't be
+separated offline and pass through as "mobile or landline" (use Number Carrier
+there). Any `task_type` starting with `local:` routes to
+`verifier/providers/local.py`.
 
 Contact types: **phone** (E.164 via libphonenumber), **email**, and
 **username** (Telegram handles / LinkedIn slugs; `@` and profile URLs are

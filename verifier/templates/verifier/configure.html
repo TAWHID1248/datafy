@@ -105,7 +105,10 @@
         <div class="section-title"><span class="section-num">03</span><h3>Choose your verification</h3></div>
         <p class="help" style="margin-top:-8px; margin-bottom:16px;">Only contacts passing a
            step continue to the next. A contact must pass every step to count as valid.
-           The second dropdown shows the checker tier and its list price per 10,000 contacts.</p>
+           The second dropdown shows the checker tier and its list price per 10,000 contacts.
+           The free <strong>Line Type</strong> step classifies numbers offline (mobile / landline /
+           VoIP…) and, as step 1, keeps landlines out of the paid checks. US and Canadian
+           numbers can't be separated offline and pass through as "mobile or landline".</p>
 
         <label class="label">Number of steps</label>
         <div class="segmented" id="stepSeg" style="margin-bottom:18px;">
@@ -171,7 +174,7 @@
     const sel = wrap.querySelector(`select[name="checker_${i}"]`);
     const tiers = checkersFor(svc);
     sel.innerHTML = tiers.map(t =>
-      `<option value="${t.key}">${t.label}${t.price ? ' · ' + t.price + ' / 10k' : ''}</option>`
+      `<option value="${t.key}">${t.label}${t.price === '$0' ? ' · free' : (t.price ? ' · ' + t.price + ' / 10k' : '')}</option>`
     ).join('');
     if (keep && tiers.some(t => t.key === keep)) sel.value = keep;
     // Always visible once a service is chosen so the price is on screen.
@@ -191,8 +194,8 @@
       if (!svc) return;
       const ck = wrap.querySelector('select[name^="checker_"]').value;
       const tier = checkersFor(svc).find(t => t.key === ck) || checkersFor(svc)[0];
-      const price = tier && parseFloat(String(tier.price).replace(/[^0-9.]/g, ''));
-      if (price && !isNaN(price)) { total += price * TOTAL_ROWS / 10000; priced++; }
+      const price = tier ? parseFloat(String(tier.price).replace(/[^0-9.]/g, '')) : NaN;
+      if (!isNaN(price)) { total += price * TOTAL_ROWS / 10000; priced++; }
       else unpriced++;
     });
     if (!priced && !unpriced) {

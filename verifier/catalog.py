@@ -203,6 +203,20 @@ SERVICES = {
                 "task_types": {EMAIL: "pornhub"}, "price": "$7"},
 
     # --- Phone number checks ----------------------------------------------
+    # Offline, free: libphonenumber line-type classification. task_types with
+    # the ``local:`` prefix are routed to verifier/providers/local.py and never
+    # hit checknumber.ai. Best used as step 1 so landlines are never paid for.
+    "line_type": {
+        "label": "Line Type (offline, free)", "group": "phone",
+        "basic_label": "Keep mobiles only",
+        "task_types": {PHONE: "local:line_type:mobile"}, "price": "$0",
+        "checkers": {
+            "landline": {"label": "Keep landlines only", "price": "$0",
+                         "task_types": {PHONE: "local:line_type:landline"}},
+            "classify": {"label": "Classify only (keep all)", "price": "$0",
+                         "task_types": {PHONE: "local:line_type:any"}},
+        },
+    },
     "number": {
         "label": "Number Checker", "group": "phone",
         "basic_label": "Number Validation",

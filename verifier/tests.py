@@ -587,6 +587,97 @@ class CheckNumberParseTests(TestCase):
         self.assertTrue(text.startswith("number,number_type,carrier"))
 
 
+class LineTypeTests(TestCase):
+    """Offline line-type step: libphonenumber classification, no provider call."""
+
+    def _run_step(self, mode, contacts):
+        from .providers import get_provider
+        p = get_provider(f"local:line_type:{mode}")
+        self.assertEqual(p.name, "line_type")
+        sub = p.submit(contacts, f"local:line_type:{mode}")
+        self.assertEqual(sub.estimated_cost, 0)
+        poll = p.poll(sub.task_id)
+        self.assertTrue(poll.done)
+        res = p.fetch(poll, contacts)
+        self.assertEqual(res.actual_cost, 0)
+        return {s.value: (s.outcome, s.raw_status) for s in res.statuses}
+
+    UK_MOBILE, UK_LANDLINE, US, US_TOLLFREE = (
+        "+447911123456", "+442071838750", "+14155552671", "+18002255288",
+    )
+
+    def test_keep_mobiles_only(self):
+        out = self._run_step("mobile", [self.UK_MOBILE, self.UK_LANDLINE, self.US, self.US_TOLLFREE])
+        self.assertEqual(out[self.UK_MOBILE], (Outcome.VALID, "mobile"))
+        self.assertEqual(out[self.UK_LANDLINE], (Outcome.INVALID, "landline"))
+        self.assertEqual(out[self.US], (Outcome.VALID, "mobile or landline"))
+        self.assertEqual(out[self.US_TOLLFREE], (Outcome.INVALID, "toll-free"))
+
+    def test_keep_landlines_only(self):
+        out = self._run_step("landline", [self.UK_MOBILE, self.UK_LANDLINE, self.US])
+        self.assertEqual(out[self.UK_MOBILE][0], Outcome.INVALID)
+        self.assertEqual(out[self.UK_LANDLINE][0], Outcome.VALID)
+        self.assertEqual(out[self.US][0], Outcome.VALID)
+
+    def test_classify_only_keeps_everything(self):
+        out = self._run_step("any", [self.UK_MOBILE, self.UK_LANDLINE, self.US_TOLLFREE])
+        self.assertTrue(all(o == Outcome.VALID for o, _ in out.values()))
+        self.assertEqual(out[self.US_TOLLFREE][1], "toll-free")
+
+    def test_unparseable_is_unresolved(self):
+        out = self._run_step("mobile", ["garbage"])
+        self.assertEqual(out["garbage"], (Outcome.UNRESOLVED, "unparseable"))
+
+    @override_settings(VERIFIER_PROVIDER="checknumber", CHECKNUMBER_API_KEY="")
+    def test_local_step_never_needs_the_live_provider(self):
+        from .providers import get_provider
+        self.assertEqual(get_provider("local:line_type:mobile").name, "line_type")
+        with self.assertRaises(RuntimeError):
+            get_provider("ws")
+
+    def test_catalog_entry(self):
+        self.assertEqual(catalog.task_type_for("line_type", "phone"), "local:line_type:mobile")
+        self.assertEqual(catalog.task_type_for("line_type", "phone", "landline"), "local:line_type:landline")
+        self.assertEqual(catalog.task_type_for("line_type", "phone", "classify"), "local:line_type:any")
+        self.assertIsNone(catalog.task_type_for("line_type", "email"))
+        self.assertEqual([c[2] for c in catalog.checkers_for("line_type", "phone")], ["$0"] * 3)
+
+
+@override_settings(MEDIA_ROOT=_MEDIA, VERIFIER_PROVIDER="mock")
+class LineTypePipelineTests(TestCase):
+    def test_landlines_never_reach_step_two(self):
+        c = Client()
+        csv_text = "phone\n+447911123456\n+442071838750\n+447911123457\n"
+        c.post(reverse("verifier:start"), {
+            "file": SimpleUploadedFile("uk.csv", csv_text.encode()),
+        })
+        job = VerificationJob.objects.latest("id")
+        r = c.post(reverse("verifier:configure", args=[job.pk]), {
+            "contact_type": "phone", "contact_column": "phone", "default_region": "GB",
+            "num_steps": "2", "service_1": "line_type", "service_2": "whatsapp",
+        })
+        self.assertEqual(r.status_code, 302)
+        c.post(reverse("verifier:review", args=[job.pk]))
+        job.refresh_from_db()
+        while orchestrator.advance_job(job) not in (orchestrator.DONE, orchestrator.FAILED):
+            job.refresh_from_db()
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.COMPLETED)
+        s1, s2 = job.steps.all()
+        self.assertEqual((s1.checked, s1.valid, s1.invalid), (3, 2, 1))
+        self.assertEqual(s2.checked, 2)   # the landline was filtered out
+        landline = job.contacts.get(normalized="+442071838750")
+        self.assertEqual(landline.final_outcome, Outcome.INVALID)
+        self.assertEqual(landline.step_results.get(step=s1).raw_status, "landline")
+        # Free step adds nothing to the estimate: only the 2 mock-checked
+        # contacts at step 2 (0.0001 each) are charged.
+        from decimal import Decimal
+        self.assertEqual(job.estimated_cost, Decimal("0.0002"))
+        # The detail column carries the type in the complete export.
+        complete = orchestrator.download_complete_csv(job)
+        self.assertIn("landline", complete)
+
+
 class RegionListTests(TestCase):
     def test_every_supported_region_has_a_name_and_dial_code(self):
         import phonenumbers

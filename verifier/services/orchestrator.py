@@ -119,7 +119,7 @@ def _contacts_for_step(job, step, prev_step):
 
 
 def _advance_step(job, step, prev_step):
-    provider = get_provider()
+    provider = get_provider(step.task_type)
     contacts = _contacts_for_step(job, step, prev_step)
     values = [c.normalized for c in contacts]
 
