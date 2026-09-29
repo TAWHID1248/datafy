@@ -4,21 +4,34 @@ Single source of truth for which services can be checked, which contact types
 each supports, and the checknumber.ai ``task_type`` code used per combination.
 
 The provider distinguishes contact type by a code suffix: ``amazon`` checks a
-phone number, ``amazon_email`` checks an email address. Not every platform
-exposes both variants, so the UI must render only the combinations listed here.
+phone number, ``amazon_email`` checks an email address, ``tg_username`` checks
+a Telegram username. Not every platform exposes every variant, so the UI must
+render only the combinations listed here.
 
 IMPORTANT: the ``task_type`` strings below follow checknumber.ai's documented
-naming pattern, but the exact per-service availability of an ``_email`` variant
-should be confirmed against your account's live capability list. Because every
-task_type is centralised here, correcting one is a one-line change and needs no
-edits elsewhere in the codebase.
+naming pattern, but the exact per-service availability of a variant should be
+confirmed against your account's live capability list. Because every task_type
+is centralised here, correcting one is a one-line change and needs no edits
+elsewhere in the codebase. Codes marked UNCONFIRMED below are sold on the
+checknumber.ai dashboard but have no public API documentation; a wrong code is
+rejected by the provider at submit time (the step fails, nothing is charged).
 """
 
 # Contact type constants.
 PHONE = "phone"
 EMAIL = "email"
+USERNAME = "username"
+
+CONTACT_TYPES = (PHONE, EMAIL, USERNAME)
 
 DEFAULT_CHECKER = "basic"
+
+# Default label of the basic checker per contact type.
+_BASIC_LABELS = {
+    PHONE: "Number Checker",
+    EMAIL: "Email Checker",
+    USERNAME: "Username Checker",
+}
 
 # Dropdown groups, in display order.
 GROUPS = [
@@ -34,27 +47,27 @@ GROUPS = [
 #   group:       one of GROUPS,
 #   task_types:  {contact_type: provider_task_type_code},   # the basic checker
 #   price:       "$x" or {contact_type: "$x"}   # list price per 10,000, display only
-#   basic_label: optional label for the basic checker (default "Number Checker"
-#                / "Email Checker")
+#   basic_label: optional label for the basic checker, a string or a
+#                {contact_type: label} dict (default per _BASIC_LABELS)
 #   checkers:    {checker_key: {label, price, task_types: {...}}}  # optional tiers
 # }
 #
 # Every service implicitly has a "basic" checker built from ``task_types``.
 # ``checkers`` lists the higher tiers the provider sells for the same platform
-# (e.g. WhatsApp "Number Activity" = ``ws_active``). All tiers return the same
-# ``number``/``activated`` core columns, so the result parser is shared; the
-# extra columns the richer tiers return are not persisted.
+# (e.g. WhatsApp "Number Activity" = ``ws_active``). All account checkers
+# return the same ``number``/``email``/``username`` + ``activated`` core
+# columns, so the result parser is shared; the extra columns the richer tiers
+# return are not persisted.
 #
-# task_type codes and prices come from docs.checknumber.ai and the
-# checknumber.ai pricing page (checked 2026-09-09). Note the provider's odd
-# capitalisation on a few codes (``Binance``, ``Kucoin``, ``coinW``) - they are
-# sent verbatim.
+# Carrier lookups (``globalCarrier``, ``us_carrier_premium``) are the one
+# exception: they return carrier data instead of ``activated``. The adapter
+# treats a resolved carrier as "valid" and stores the carrier in the step's
+# raw status so it appears in the per-step and complete exports.
 #
-# Deliberately NOT listed: Telegram username checkers (``tg_username``,
-# ``tg_username_activity``) because they take usernames, not phones or emails;
-# carrier lookups (``globalCarrier``, ``us_carrier_premium``) because they
-# return carrier data rather than a yes/no ``activated`` verdict; and the
-# "E-commerce Activity" checker, which has no documented task_type.
+# task_type codes come from docs.checknumber.ai; prices are the list prices
+# shown on the checknumber.ai dashboard (checked 2026-09-29). Note the
+# provider's odd capitalisation on a few codes (``Binance``, ``Kucoin``,
+# ``coinW``, ``globalCarrier``) - they are sent verbatim.
 SERVICES = {
     # --- Messaging & social ------------------------------------------------
     "whatsapp": {
@@ -63,6 +76,8 @@ SERVICES = {
         "checkers": {
             "advanced": {"label": "Advanced Checker", "price": "$1",
                          "task_types": {PHONE: "ws_advanced"}},
+            "business": {"label": "Business Checker", "price": "$1.2",
+                         "task_types": {PHONE: "ws_business"}},
             "activity": {"label": "Number Activity", "price": "$1.8",
                          "task_types": {PHONE: "ws_active"}},
             "profile": {"label": "Number Profile", "price": "$3.8",
@@ -71,12 +86,15 @@ SERVICES = {
     },
     "telegram": {
         "label": "Telegram", "group": "social",
-        "task_types": {PHONE: "tg"}, "price": "$1.5",
+        "task_types": {PHONE: "tg", USERNAME: "tg_username"},
+        "price": {PHONE: "$1.5", USERNAME: "$0.8"},
         "checkers": {
             "activity": {"label": "Number Activity", "price": "$3.5",
                          "task_types": {PHONE: "tg_active"}},
             "profile": {"label": "Number Profile", "price": "$4.5",
                         "task_types": {PHONE: "tg_avatar"}},
+            "username_profile": {"label": "Username Profile", "price": "$3.5",
+                                 "task_types": {USERNAME: "tg_username_activity"}},
         },
     },
     "viber": {
@@ -105,7 +123,7 @@ SERVICES = {
     "instagram": {
         "label": "Instagram", "group": "social",
         "task_types": {PHONE: "instagram", EMAIL: "instagram_email"},
-        "price": {PHONE: "$0.3", EMAIL: "$0.3"},
+        "price": {PHONE: "$1", EMAIL: "$0.3"},
     },
     "threads": {"label": "Threads", "group": "social",
                 "task_types": {PHONE: "threads"}, "price": "$0.8"},
@@ -113,10 +131,23 @@ SERVICES = {
                "task_types": {PHONE: "tiktok"}, "price": "$9"},
     "snapchat": {"label": "Snapchat", "group": "social",
                  "task_types": {PHONE: "snapchat"}, "price": "$15"},
+    "twitter": {
+        "label": "X (Twitter)", "group": "social",
+        "task_types": {PHONE: "twitter", EMAIL: "twitter_email"},
+        "price": {PHONE: "$2", EMAIL: "$1"},
+        "checkers": {
+            # UNCONFIRMED: sold on the dashboard ("Profile Checker", per
+            # 10,000 emails) but not in the public API docs.
+            "profile": {"label": "Profile Checker", "price": "$7",
+                        "task_types": {EMAIL: "twitter_profile"}},
+        },
+    },
     "linkedin": {
         "label": "LinkedIn", "group": "social",
-        "task_types": {PHONE: "linkedin_phone", EMAIL: "linkedin"},
-        "price": {PHONE: "$4", EMAIL: "$0.3"},
+        "task_types": {PHONE: "linkedin_phone", EMAIL: "linkedin",
+                       USERNAME: "linkedin_username"},
+        "price": {PHONE: "$4", EMAIL: "$0.3", USERNAME: "$5"},
+        "basic_label": {USERNAME: "Username Profile"},
         "checkers": {
             "profile": {"label": "Email Profile", "price": "$3",
                         "task_types": {EMAIL: "linkedin_profile"}},
@@ -177,12 +208,18 @@ SERVICES = {
         "basic_label": "Number Validation",
         "task_types": {PHONE: "phoneCheck"}, "price": "$1.5",
         "checkers": {
+            "carrier": {"label": "Number Carrier", "price": "$1.5",
+                        "task_types": {PHONE: "globalCarrier"}},
             "activity": {"label": "Number Activity", "price": "$4.5",
                          "task_types": {PHONE: "active_check"}},
             "high_value": {"label": "High-Value Number", "price": "$5.5",
                            "task_types": {PHONE: "high_value_users"}},
+            "ecommerce": {"label": "E-commerce Number", "price": "$5.5",
+                          "task_types": {PHONE: "ecom_active"}},
         },
     },
+    "us_carrier": {"label": "US Carrier Advanced", "group": "phone",
+                   "task_types": {PHONE: "us_carrier_premium"}, "price": "$15"},
 
     # --- Commerce & services ----------------------------------------------
     "amazon": {
@@ -206,18 +243,35 @@ SERVICES = {
                 "task_types": {EMAIL: "spotify_email"}, "price": "$1"},
     "airbnb": {"label": "Airbnb", "group": "commerce",
                "task_types": {PHONE: "airbnb"}, "price": "$2"},
+    "shopee": {"label": "Shopee", "group": "commerce",
+               "task_types": {PHONE: "shopee"}, "price": "$5"},
     "temu": {"label": "Temu", "group": "commerce",
              "task_types": {PHONE: "temu"}, "price": "$2"},
     "dhl": {"label": "DHL", "group": "commerce",
             "task_types": {PHONE: "dhl"}, "price": "$1.5"},
+    "paypal": {
+        "label": "PayPal", "group": "commerce",
+        # PHONE is UNCONFIRMED: sold on the dashboard ("Number Checker") but
+        # only the email variant is in the public API docs.
+        "task_types": {PHONE: "paypal", EMAIL: "paypal_email"},
+        "price": {PHONE: "$15", EMAIL: "$10"},
+    },
     "wheely": {"label": "Wheely", "group": "commerce", "basic_label": "Account Checker",
                "task_types": {PHONE: "wheely"}, "price": "$5"},
     "rabota": {"label": "Rabota.ru", "group": "commerce", "basic_label": "Account Checker",
                "task_types": {PHONE: "rabota_phone"}, "price": "$2"},
 
     # --- Crypto exchanges --------------------------------------------------
-    "binance": {"label": "Binance", "group": "exchange",
-                "task_types": {PHONE: "Binance"}, "price": "$6.5"},
+    "binance": {
+        "label": "Binance", "group": "exchange",
+        "task_types": {PHONE: "Binance", EMAIL: "binance_email"},
+        "price": {PHONE: "$6.5", EMAIL: "$15"},
+    },
+    "cryptocom": {
+        "label": "Crypto.com", "group": "exchange",
+        "task_types": {PHONE: "crypto", EMAIL: "crypto_email"},
+        "price": {PHONE: "$12", EMAIL: "$12"},
+    },
     "kucoin": {
         "label": "KuCoin", "group": "exchange",
         "task_types": {PHONE: "Kucoin", EMAIL: "kucoin_email"},
@@ -233,10 +287,10 @@ SERVICES = {
         "task_types": {PHONE: "coinW", EMAIL: "coinw_email"},
         "price": {PHONE: "$2", EMAIL: "$7"},
     },
-    "okx": {"label": "OKX", "group": "exchange", "basic_label": "Account Checker",
-            "task_types": {PHONE: "okx"}, "price": "$15"},
-    "cryptocom": {"label": "Crypto.com", "group": "exchange",
-                  "task_types": {EMAIL: "crypto_email"}, "price": "$15"},
+    "okx": {"label": "OKX", "group": "exchange",
+            "task_types": {PHONE: "okx"}, "price": "$10"},
+    "cryptobot": {"label": "Crypto Bot", "group": "exchange",
+                  "task_types": {EMAIL: "cryptobot"}, "price": "$7"},
 
     # --- Email accounts ----------------------------------------------------
     "gmail": {
@@ -267,9 +321,17 @@ SERVICES = {
                 "task_types": {EMAIL: "outlook"}, "price": "$2"},
     "yahoo": {"label": "Yahoo", "group": "email", "basic_label": "Yahoo Checker",
               "task_types": {EMAIL: "yahoo"}, "price": "$2"},
-    "email_validation": {"label": "Email Validation", "group": "email",
-                         "basic_label": "Account Checker",
-                         "task_types": {EMAIL: "email_check"}, "price": "$7"},
+    "email_deliverability": {
+        "label": "Email Deliverability", "group": "email",
+        "basic_label": "Deliverability Checker",
+        "task_types": {EMAIL: "email_check"}, "price": "$5",
+        "checkers": {
+            # Documented (Gmail / Yandex / Mail.ru avatars) but no list price
+            # is published; the UI shows it as unpriced.
+            "avatar": {"label": "Avatar Checker", "price": "",
+                       "task_types": {EMAIL: "email_avatar"}},
+        },
+    },
 }
 
 
@@ -279,6 +341,13 @@ def _price(meta, contact_type):
     if isinstance(price, dict):
         return price.get(contact_type, "")
     return price
+
+
+def _basic_label(meta, contact_type):
+    label = meta.get("basic_label")
+    if isinstance(label, dict):
+        label = label.get(contact_type)
+    return label or _BASIC_LABELS.get(contact_type, "Checker")
 
 
 def checkers_for(service_key, contact_type):
@@ -293,10 +362,8 @@ def checkers_for(service_key, contact_type):
     out = []
     basic = meta["task_types"].get(contact_type)
     if basic:
-        label = meta.get("basic_label") or (
-            "Email Checker" if contact_type == EMAIL else "Number Checker"
-        )
-        out.append((DEFAULT_CHECKER, label, _price(meta, contact_type), basic))
+        out.append((DEFAULT_CHECKER, _basic_label(meta, contact_type),
+                    _price(meta, contact_type), basic))
     for key, tier in meta.get("checkers", {}).items():
         task_type = tier["task_types"].get(contact_type)
         if task_type:

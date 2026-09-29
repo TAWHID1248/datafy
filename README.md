@@ -1,8 +1,9 @@
 # Datafy — Database Verification System
 
-Internal tool: upload a CSV of phone numbers or emails, verify them through one
-or more services (WhatsApp, Telegram, Amazon, Gmail, Binance, … 47 in all) via checknumber.ai, and get the
-results matched back to every original row.
+Internal tool: upload a CSV of phone numbers, emails, or usernames, verify them
+through one or more services (WhatsApp, Telegram, Amazon, Gmail, Binance, … the
+full checknumber.ai catalog: 52 services, 91 checker tiers) and get the results
+matched back to every original row.
 
 ## Stack
 
@@ -45,10 +46,12 @@ contract: `POST /v1/tasks` (multipart file + `task_type`), poll `POST
 
 ### Two things to confirm against your live account
 
-1. **Per-service email support.** `verifier/catalog.py` lists the `task_type`
-   code for each (service × phone/email) combo following checknumber's
-   documented `_email` suffix pattern. Confirm which of your services actually
-   expose an email variant and correct the catalog (one line each).
+1. **Per-service variants.** `verifier/catalog.py` lists the `task_type`
+   code for each (service × phone/email/username) combo from the checknumber
+   docs. Two dashboard-only tiers have no public docs and are marked
+   `UNCONFIRMED` in the catalog (X Profile Checker → `twitter_profile`, PayPal
+   Number Checker → `paypal`); a wrong code fails the step at submit time with
+   the provider's message and costs nothing. Correct the catalog (one line each).
 2. **`activated` values.** `checknumber.py::_map_status` maps `yes/no/...` onto
    the three buckets. Verify the exact labels your account returns. Anything
    undetermined or missing is treated as **unresolved**, never invalid.
@@ -68,6 +71,12 @@ verifier/
     run_worker.py            drives queued/processing jobs to completion
   views.py                   dashboard, wizard, detail+progress, downloads, history
 ```
+
+Contact types: **phone** (E.164 via libphonenumber), **email**, and
+**username** (Telegram handles / LinkedIn slugs; `@` and profile URLs are
+stripped). Carrier lookups (Number Carrier, US Carrier Advanced) return carrier
+data instead of yes/no: a resolved carrier counts as *valid* and the carrier
+text lands in the `detail` column of the per-step and complete exports.
 
 Key guarantees: original values are never mutated (normalized form goes in its
 own column); duplicate contacts are checked once but every original row is kept

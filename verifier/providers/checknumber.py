@@ -9,10 +9,17 @@ Implements the documented file-based async contract:
             result_url, actual_amount:{amount,currency}}
   GET   {base}/balance
 
-Results are downloaded from ``result_url`` (a ZIP) and always contain the
-columns ``number`` (or ``phone`` / ``email``) and ``activated``. The richer
-checkers (``ws_active``, ``ws_avatar``, ``tg_active``, ``tg_avatar``) add more
-columns; those are ignored, only ``activated`` drives the outcome.
+Results are downloaded from ``result_url`` (a ZIP) and normally contain the
+columns ``number`` (or ``phone`` / ``email`` / ``username``) and ``activated``.
+The richer checkers (``ws_active``, ``ws_avatar``, ``tg_active``, ``tg_avatar``)
+add more columns; those are ignored, only the verdict column drives the outcome.
+
+A few checkers name their columns differently and are handled in ``_parse_row``:
+``high_value_users`` exports ``Mobile Number`` / ``Result``; ``ws_business``
+exports ``whatsapp`` / ``business`` (the business flag is the verdict); the
+carrier lookups (``globalCarrier``, ``us_carrier_premium``) export no verdict at
+all, only ``number_type`` / ``carrier`` / ... - a resolved carrier counts as
+valid and the carrier text is kept as the raw status.
 
 Status mapping (see the provider's own guidance: "treat only an explicit
 determined result as a positive or negative classification; undetermined /
@@ -46,18 +53,43 @@ from .base import (
 _VALID = {"yes", "true", "activated", "active", "1"}
 _INVALID = {"no", "false", "not_activated", "bad", "inactive", "0"}
 
+# Column that echoes the submitted contact, in lookup order.
+_VALUE_KEYS = ("number", "phone", "mobile number", "email", "username")
+# Column carrying the yes/no verdict, in lookup order.
+_STATUS_KEYS = ("activated", "result", "business", "whatsapp")
+# Columns that identify a carrier-lookup export (no verdict column).
+_CARRIER_KEYS = ("carrier", "number_type", "underlying_carrier")
+# Any of these in a header row marks the results table inside the export ZIP.
+_TABLE_MARKERS = _STATUS_KEYS + _CARRIER_KEYS
+
 
 def _match_key(value: str) -> str:
     """Join key for matching submitted contacts to result rows.
 
     The provider echoes phone numbers without the leading ``+`` (and may add
-    other formatting), so compare digits only. Emails compare case-insensitively.
+    other formatting), so compare digits only. Emails and usernames compare
+    case-insensitively, ignoring a leading ``@``.
     """
-    v = (value or "").strip()
-    if "@" in v:
+    v = (value or "").strip().lstrip("@").strip()
+    if "@" in v or any(ch.isalpha() for ch in v):
         return v.lower()
     digits = "".join(ch for ch in v if ch.isdigit())
     return digits or v
+
+
+def _parse_row(norm: dict) -> tuple[str, str]:
+    """Map one lower-cased result row to (outcome, raw_status)."""
+    for key in _STATUS_KEYS:
+        if key in norm:
+            raw = norm[key].strip()
+            return _map_status(raw), raw
+    if any(key in norm for key in _CARRIER_KEYS):
+        parts = [norm.get("number_type", "").strip(), norm.get("carrier", "").strip()]
+        detail = " · ".join(part for part in parts if part)
+        if detail:
+            return Outcome.VALID, detail
+        return Outcome.UNRESOLVED, "no carrier"
+    return Outcome.UNRESOLVED, ""
 
 
 def _map_status(raw: str) -> str:
@@ -148,20 +180,20 @@ class CheckNumberProvider(VerificationProvider):
             # Richer checkers return extra columns and may capitalise headers
             # (Telegram profile exports "Phone"), so look up case-insensitively.
             norm = {(k or "").strip().lower(): (v or "") for k, v in row.items()}
-            value = (
-                norm.get("number") or norm.get("phone") or norm.get("email") or ""
-            ).strip()
+            value = ""
+            for key in _VALUE_KEYS:
+                value = (norm.get(key) or "").strip()
+                if value:
+                    break
             if value:
-                found[_match_key(value)] = norm.get("activated", "").strip()
+                found[_match_key(value)] = _parse_row(norm)
         statuses = []
         for c in contacts:
             key = _match_key(c)
             if key in found:
-                raw = found[key]
+                outcome, raw = found[key]
                 statuses.append(
-                    ContactStatus(
-                        value=c, outcome=_map_status(raw), raw_status=raw
-                    )
+                    ContactStatus(value=c, outcome=outcome, raw_status=raw)
                 )
             else:
                 # Submitted but absent from results -> unchecked, not invalid.
@@ -193,8 +225,8 @@ class CheckNumberProvider(VerificationProvider):
         The export contains several files (``registered.txt``,
         ``unregistered.txt``, ``all.csv``, ``result.xlsx``); only ``all.csv``
         carries the full ``number,activated`` table, so prefer the member whose
-        header row mentions ``activated``, then any ``.csv``, then the first
-        file at all.
+        header row mentions a verdict or carrier column, then any ``.csv``,
+        then the first file at all.
         """
         csv_fallback = None
         first = None
@@ -205,7 +237,7 @@ class CheckNumberProvider(VerificationProvider):
             if first is None:
                 first = text
             header = text.split("\n", 1)[0].lower()
-            if "activated" in header:
+            if any(marker in header for marker in _TABLE_MARKERS):
                 return text
             if csv_fallback is None and name.lower().endswith(".csv"):
                 csv_fallback = text

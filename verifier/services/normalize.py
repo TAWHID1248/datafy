@@ -3,8 +3,10 @@
 Phone numbers use Google's libphonenumber (via the ``phonenumbers`` package):
 an existing international ``+`` prefix is respected; a bare national number is
 parsed against the job's default region (or a per-row country column). Emails
-get light structural validation. Nothing here mutates the original value — the
-normalized form is returned separately and stored in its own column.
+get light structural validation. Usernames (Telegram handles, LinkedIn public
+slugs) are lower-cased with any ``@`` prefix or profile URL stripped. Nothing
+here mutates the original value — the normalized form is returned separately
+and stored in its own column.
 """
 
 import re
@@ -12,6 +14,10 @@ import re
 import phonenumbers
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Handle after stripping "@" / URL: letters, digits, dot, underscore, hyphen.
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
+# "https://t.me/foo", "linkedin.com/in/foo/", "www.x.com/@foo" -> "foo"
+_URL_RE = re.compile(r"^(?:https?://)?(?:www\.)?[\w.-]+\.[a-z]{2,}(?:/.*)?$", re.I)
 
 
 def normalize_phone(raw, default_region=None, row_region=None):
@@ -69,7 +75,31 @@ def normalize_email(raw):
     return value, ""
 
 
+def normalize_username(raw):
+    """Return (normalized_username | "", flag_reason | "").
+
+    Accepts a bare handle, an ``@handle``, or a profile URL (``t.me/handle``,
+    ``linkedin.com/in/handle``); the last non-empty path segment is the handle.
+    """
+    if raw is None:
+        return "", "missing"
+    value = str(raw).strip()
+    if not value:
+        return "", "missing"
+    if _URL_RE.match(value):
+        parts = [seg for seg in value.split("?", 1)[0].split("/") if seg]
+        value = parts[-1] if len(parts) > 1 else ""
+    value = value.lstrip("@").strip().lower()
+    if not value:
+        return "", "missing"
+    if not _USERNAME_RE.match(value):
+        return "", "malformed username"
+    return value, ""
+
+
 def normalize(raw, contact_type, default_region=None, row_region=None):
     if contact_type == "email":
         return normalize_email(raw)
+    if contact_type == "username":
+        return normalize_username(raw)
     return normalize_phone(raw, default_region=default_region, row_region=row_region)

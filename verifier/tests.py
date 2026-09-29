@@ -18,7 +18,11 @@ from .models import (
     VerificationJob,
 )
 from .services import orchestrator
-from .services.normalize import normalize_email, normalize_phone
+from .services.normalize import (
+    normalize_email,
+    normalize_phone,
+    normalize_username,
+)
 
 SAMPLE = (
     "name,phone,notes\n"
@@ -57,6 +61,19 @@ class NormalizeTests(TestCase):
         val, reason = normalize_phone("5552671", default_region=None)
         self.assertEqual(val, "")
         self.assertEqual(reason, "no country code")
+
+    def test_username_handles_at_prefix_and_urls(self):
+        self.assertEqual(normalize_username("@Alice_1"), ("alice_1", ""))
+        self.assertEqual(normalize_username("https://t.me/Bob"), ("bob", ""))
+        self.assertEqual(normalize_username("linkedin.com/in/jane-doe/"), ("jane-doe", ""))
+        self.assertEqual(normalize_username("www.x.com/@foo?x=1"), ("foo", ""))
+        self.assertEqual(normalize_username("carol"), ("carol", ""))
+
+    def test_username_missing_and_malformed_flagged(self):
+        self.assertEqual(normalize_username("")[1], "missing")
+        self.assertEqual(normalize_username(None)[1], "missing")
+        self.assertEqual(normalize_username("@")[1], "missing")
+        self.assertEqual(normalize_username("bad name")[1], "malformed username")
 
     def test_bad_row_region_falls_back_to_default(self):
         # Country column pointing at non-region data (e.g. the phone column
@@ -167,6 +184,7 @@ class PipelineTests(TestCase):
         self.assertEqual(len(lines), 8)
         self.assertIn("name,phone,notes", lines[0])
         self.assertIn("normalized_contact", lines[0])
+        self.assertIn("step1_detail", lines[0])
         self.assertIn("final_outcome", lines[0])
 
     def test_valid_txt_only_final_valid(self):
@@ -189,7 +207,7 @@ class PipelineTests(TestCase):
         step1 = job.steps.first()
         checked = orchestrator.download_step_txt(job, step1)
         lines = checked.strip().splitlines()
-        self.assertEqual(lines[0], "contact\tnormalized\tstatus")
+        self.assertEqual(lines[0], "contact\tnormalized\tstatus\tdetail")
         # one row per contact checked at step 1
         self.assertEqual(len(lines) - 1, step1.checked)
         # valid-only export lists exactly the step's valid contacts
@@ -303,11 +321,62 @@ class CatalogCheckerTests(TestCase):
         groups = {g for g, _ in catalog.GROUPS}
         for key, meta in catalog.SERVICES.items():
             self.assertIn(meta["group"], groups, key)
-            for ct in (catalog.PHONE, catalog.EMAIL):
+            for ct in catalog.CONTACT_TYPES:
                 for ck, label, price, task_type in catalog.checkers_for(key, ct):
                     self.assertTrue(task_type, f"{key}/{ct}/{ck}")
-                    self.assertRegex(price, r"^\$\d", f"{key}/{ct}/{ck}")
+                    # A blank price is allowed only for the one documented
+                    # tier with no published list price.
+                    if (key, ck) != ("email_deliverability", "avatar"):
+                        self.assertRegex(price, r"^\$\d", f"{key}/{ct}/{ck}")
                     self.assertTrue(label, f"{key}/{ct}/{ck}")
+
+    def test_task_types_are_unique_per_contact_type(self):
+        seen = {}
+        for ct in catalog.CONTACT_TYPES:
+            for key, _l, _t in catalog.services_for(ct):
+                for ck, _cl, _cp, task_type in catalog.checkers_for(key, ct):
+                    self.assertNotIn(task_type, seen, f"{key}/{ck} duplicates {seen.get(task_type)}")
+                    seen[task_type] = f"{key}/{ck}"
+
+    def test_dashboard_catalog_is_complete(self):
+        """Every card/tier on the checknumber.ai dashboard resolves to a code."""
+        expect = {
+            ("whatsapp", "phone", "business"): "ws_business",
+            ("twitter", "phone", "basic"): "twitter",
+            ("twitter", "email", "basic"): "twitter_email",
+            ("twitter", "email", "profile"): "twitter_profile",
+            ("shopee", "phone", "basic"): "shopee",
+            ("paypal", "email", "basic"): "paypal_email",
+            ("paypal", "phone", "basic"): "paypal",
+            ("binance", "email", "basic"): "binance_email",
+            ("cryptocom", "phone", "basic"): "crypto",
+            ("cryptocom", "email", "basic"): "crypto_email",
+            ("okx", "phone", "basic"): "okx",
+            ("cryptobot", "email", "basic"): "cryptobot",
+            ("email_deliverability", "email", "basic"): "email_check",
+            ("email_deliverability", "email", "avatar"): "email_avatar",
+            ("number", "phone", "carrier"): "globalCarrier",
+            ("number", "phone", "ecommerce"): "ecom_active",
+            ("us_carrier", "phone", "basic"): "us_carrier_premium",
+            ("telegram", "username", "basic"): "tg_username",
+            ("telegram", "username", "username_profile"): "tg_username_activity",
+            ("linkedin", "username", "basic"): "linkedin_username",
+        }
+        for (svc, ct, ck), code in expect.items():
+            self.assertEqual(catalog.task_type_for(svc, ct, ck), code, (svc, ct, ck))
+        self.assertEqual(catalog.checkers_for("instagram", "phone")[0][2], "$1")
+        self.assertEqual(catalog.checkers_for("okx", "phone")[0][1:3], ("Number Checker", "$10"))
+        self.assertEqual(catalog.checkers_for("linkedin", "username")[0][1], "Username Profile")
+        self.assertEqual(catalog.checkers_for("telegram", "username")[0][1], "Username Checker")
+        # Username-only services never leak into the phone/email dropdowns.
+        self.assertIsNone(catalog.task_type_for("telegram", "phone", "username_profile"))
+        self.assertIsNone(catalog.task_type_for("linkedin", "phone", "profile"))
+
+    def test_username_services_grouped(self):
+        grouped = dict(catalog.services_grouped("username"))
+        self.assertEqual(list(grouped), ["Messaging & social"])
+        self.assertEqual([k for k, _l, _t in grouped["Messaging & social"]],
+                         ["telegram", "linkedin"])
 
     def test_new_services_resolve_documented_task_types(self):
         self.assertEqual(catalog.task_type_for("viber", "phone", "profile"), "viber_senior")
@@ -328,7 +397,7 @@ class CatalogCheckerTests(TestCase):
 
     def test_checkers_for_lists_basic_first(self):
         keys = [c[0] for c in catalog.checkers_for("whatsapp", "phone")]
-        self.assertEqual(keys, ["basic", "advanced", "activity", "profile"])
+        self.assertEqual(keys, ["basic", "advanced", "business", "activity", "profile"])
         keys = [c[0] for c in catalog.checkers_for("amazon", "email")]
         self.assertEqual(keys, ["basic"])
         self.assertEqual(catalog.checkers_for("spotify", "phone"), [])
@@ -368,12 +437,55 @@ class CheckerSelectionViewTests(TestCase):
         self._configure(checker_1="bogus")
         self.assertEqual(self.job.steps.count(), 0)
 
+    def test_username_job_runs_end_to_end(self):
+        c = Client()
+        csv_text = "name,handle\nA,@Alice_1\nB,https://t.me/Bob\nC,bad name\nD,alice_1\n"
+        c.post(reverse("verifier:start"), {
+            "file": SimpleUploadedFile("handles.csv", csv_text.encode()),
+        })
+        job = VerificationJob.objects.latest("id")
+        r = c.post(reverse("verifier:configure", args=[job.pk]), {
+            "contact_type": "username", "contact_column": "handle",
+            "num_steps": "1", "service_1": "telegram", "checker_1": "username_profile",
+        })
+        self.assertEqual(r.status_code, 302)
+        job.refresh_from_db()
+        step = job.steps.get()
+        self.assertEqual((step.task_type, step.checker_label),
+                         ("tg_username_activity", "Username Profile"))
+        # @Alice_1 and alice_1 dedupe to one contact; "bad name" is flagged.
+        self.assertEqual(job.unique_contacts, 3)
+        self.assertEqual(job.flagged_contacts, 1)
+        self.assertEqual(
+            set(job.contacts.filter(is_eligible=True).values_list("normalized", flat=True)),
+            {"alice_1", "bob"},
+        )
+        c.post(reverse("verifier:review", args=[job.pk]))
+        while orchestrator.advance_job(job) not in (orchestrator.DONE, orchestrator.FAILED):
+            job.refresh_from_db()
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.COMPLETED)
+        self.assertEqual(step.results.count(), 2)
+
+    def test_phone_only_service_rejected_for_username(self):
+        c = Client()
+        c.post(reverse("verifier:start"), {
+            "file": SimpleUploadedFile("h.csv", b"handle\nalice\n"),
+        })
+        job = VerificationJob.objects.latest("id")
+        c.post(reverse("verifier:configure", args=[job.pk]), {
+            "contact_type": "username", "contact_column": "handle",
+            "num_steps": "1", "service_1": "whatsapp",
+        })
+        self.assertEqual(job.steps.count(), 0)
+
     def test_configure_page_exposes_checker_options(self):
         r = self.c.get(reverse("verifier:configure", args=[self.job.pk]))
         self.assertContains(r, "Number Activity")
         self.assertContains(r, 'name="checker_${i}"')
-        self.assertContains(r, 'group:"Crypto exchanges"')
-        self.assertContains(r, 'key:"binance"')
+        self.assertContains(r, '"group": "Crypto exchanges"')
+        self.assertContains(r, '"key": "binance"')
+        self.assertContains(r, '"username": [{"group": "Messaging &')
 
     def test_configure_page_has_estimated_cost_row(self):
         r = self.c.get(reverse("verifier:configure", args=[self.job.pk]))
@@ -422,6 +534,57 @@ class CheckNumberParseTests(TestCase):
         )
         self.assertEqual(out["+14155552671"], Outcome.VALID)
         self.assertEqual(out["+14155552672"], Outcome.INVALID)
+
+    def _fetch_full(self, csv_text, contacts):
+        from .providers.base import PollResult
+        p, mock = self._provider()
+        with mock.patch.object(p, "_download_rows") as dl:
+            import csv, io
+            dl.return_value = list(csv.DictReader(io.StringIO(csv_text)))
+            res = p.fetch(PollResult(state="exported", done=True, result_url="u"), contacts)
+        return {s.value: (s.outcome, s.raw_status) for s in res.statuses}
+
+    def test_high_value_users_columns(self):
+        out = self._fetch("Mobile Number,Result\n14155552671,yes\n14155552672,no\n")
+        self.assertEqual(out["+14155552671"], Outcome.VALID)
+        self.assertEqual(out["+14155552672"], Outcome.INVALID)
+
+    def test_whatsapp_business_uses_business_flag(self):
+        out = self._fetch(
+            "number,whatsapp,business\n14155552671,yes,yes\n14155552672,yes,no\n"
+        )
+        self.assertEqual(out["+14155552671"], Outcome.VALID)
+        self.assertEqual(out["+14155552672"], Outcome.INVALID)
+
+    def test_carrier_lookup_keeps_carrier_as_detail(self):
+        out = self._fetch_full(
+            "number,number_type,country_code,carrier,underlying_carrier,region,city\n"
+            "14155552671,mobile,1,Verizon Wireless,Verizon,CA,San Francisco\n"
+            "14155552672,,,,,,\n",
+            ["+14155552671", "+14155552672", "+14155552673"],
+        )
+        self.assertEqual(out["+14155552671"], (Outcome.VALID, "mobile · Verizon Wireless"))
+        self.assertEqual(out["+14155552672"], (Outcome.UNRESOLVED, "no carrier"))
+        self.assertEqual(out["+14155552673"], (Outcome.UNRESOLVED, "missing"))
+
+    def test_username_results_match_case_and_at_insensitively(self):
+        out = self._fetch_full(
+            "username,activated,avatar_url\n@Alice_1,yes,\nbob,no,\n",
+            ["alice_1", "bob", "carol"],
+        )
+        self.assertEqual(out["alice_1"][0], Outcome.VALID)
+        self.assertEqual(out["bob"][0], Outcome.INVALID)
+        self.assertEqual(out["carol"][0], Outcome.UNRESOLVED)
+
+    def test_pick_member_prefers_carrier_table(self):
+        import io, zipfile
+        from .providers import checknumber
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("registered.txt", "+14155552671\n")
+            zf.writestr("all.csv", "number,number_type,carrier\n14155552671,mobile,X\n")
+        text = checknumber.CheckNumberProvider._pick_member(zipfile.ZipFile(io.BytesIO(buf.getvalue())))
+        self.assertTrue(text.startswith("number,number_type,carrier"))
 
 
 class RegionListTests(TestCase):

@@ -48,6 +48,7 @@ class StepStatus(models.TextChoices):
 class ContactType(models.TextChoices):
     PHONE = "phone", "Phone number"
     EMAIL = "email", "Email address"
+    USERNAME = "username", "Username"
 
 
 class VerificationJob(models.Model):
@@ -238,7 +239,9 @@ class StepResult(models.Model):
         Contact, related_name="step_results", on_delete=models.CASCADE
     )
     outcome = models.CharField(max_length=12, choices=Outcome.choices)
-    raw_status = models.CharField(max_length=60, blank=True)  # provider's label
+    # Provider's own label: "yes"/"no" for account checkers, the resolved
+    # carrier ("mobile · Verizon") for carrier lookups.
+    raw_status = models.CharField(max_length=120, blank=True)
 
     class Meta:
         unique_together = [("step", "contact")]

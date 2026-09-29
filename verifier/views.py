@@ -156,8 +156,16 @@ def job_configure(request, pk):
         "job": job,
         "columns": columns,
         "preview_rows": preview_rows,
-        "phone_services": catalog.services_grouped(catalog.PHONE),
-        "email_services": catalog.services_grouped(catalog.EMAIL),
+        # {contact_type: [{group, services: [{key, label}, ...]}, ...]}
+        "services_json": json.dumps({
+            ct: [
+                {"group": glabel,
+                 "services": [{"key": k, "label": l} for k, l, _tt in svcs]}
+                for glabel, svcs in catalog.services_grouped(ct)
+            ]
+            for ct in catalog.CONTACT_TYPES
+        }),
+        # {contact_type: {service_key: [{key, label, price}, ...]}}
         "checkers_json": json.dumps({
             ct: {
                 key: [
@@ -166,7 +174,7 @@ def job_configure(request, pk):
                 ]
                 for key, _label, _tt in catalog.services_for(ct)
             }
-            for ct in (catalog.PHONE, catalog.EMAIL)
+            for ct in catalog.CONTACT_TYPES
         }),
         "contact_types": ContactType.choices,
         "popular_regions": popular_regions,

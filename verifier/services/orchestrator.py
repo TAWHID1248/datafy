@@ -160,7 +160,7 @@ def _advance_step(job, step, prev_step):
         for c in contacts:
             st = by_value.get(c.normalized)
             outcome = st.outcome if st else Outcome.UNRESOLVED
-            raw = st.raw_status if st else "missing"
+            raw = (st.raw_status if st else "missing")[:120]
             counts[outcome] = counts.get(outcome, 0) + 1
             results.append(StepResult(
                 step=step, contact=c, outcome=outcome, raw_status=raw,
@@ -286,8 +286,10 @@ def download_all_results_txt(job):
 def download_step_txt(job, step, valid_only=False):
     """Per-step export: contacts this service checked, with their status.
 
-    Tab-separated (contact, normalized, status). With valid_only, only the
-    contacts this step marked valid, one normalized contact per line.
+    Tab-separated (contact, normalized, status, detail) where detail is the
+    provider's own label - "yes"/"no" for account checkers, the resolved
+    carrier for carrier lookups. With valid_only, only the contacts this step
+    marked valid, one normalized contact per line.
     """
     results = (
         StepResult.objects.filter(step=step)
@@ -298,9 +300,12 @@ def download_step_txt(job, step, valid_only=False):
         values = [r.contact.normalized for r in results if r.outcome == Outcome.VALID]
         return csv_utils.build_valid_txt(values)
 
-    out = ["contact\tnormalized\tstatus"]
+    out = ["contact\tnormalized\tstatus\tdetail"]
     for r in results:
-        out.append(f"{r.contact.raw_value}\t{r.contact.normalized}\t{r.outcome}")
+        out.append(
+            f"{r.contact.raw_value}\t{r.contact.normalized}\t{r.outcome}"
+            f"\t{r.raw_status}"
+        )
     return "\n".join(out) + "\n"
 
 
@@ -309,6 +314,7 @@ def _appended_columns(job):
     for i, step in enumerate(job.steps.all(), start=1):
         cols.append(f"step{i}_service")
         cols.append(f"step{i}_result")
+        cols.append(f"step{i}_detail")
     cols += ["final_outcome", "verification_date"]
     return cols
 
@@ -317,8 +323,10 @@ def _appended_for_contact(job, contact, steps, results):
     date = job.completed_at.isoformat() if job.completed_at else ""
     appended = {"normalized_contact": contact.normalized}
     for i, step in enumerate(steps, start=1):
-        appended[f"step{i}_service"] = step.service_label
-        appended[f"step{i}_result"] = results.get((step.id, contact.id), "skipped")
+        outcome, detail = results.get((step.id, contact.id), ("skipped", ""))
+        appended[f"step{i}_service"] = step.display_label
+        appended[f"step{i}_result"] = outcome
+        appended[f"step{i}_detail"] = detail
     appended["final_outcome"] = contact.final_outcome or (
         contact.flag_reason or "flagged"
     )
@@ -329,7 +337,7 @@ def _appended_for_contact(job, contact, steps, results):
 def download_complete_csv(job, valid_only=False):
     steps = list(job.steps.all())
     results = {
-        (r.step_id, r.contact_id): r.outcome
+        (r.step_id, r.contact_id): (r.outcome, r.raw_status)
         for r in StepResult.objects.filter(step__job=job)
     }
     appended_cols = _appended_columns(job)

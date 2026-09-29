@@ -95,6 +95,9 @@
           <p class="help">Existing international codes are preserved. Ambiguous local
              numbers with no country are skipped.</p>
         </div>
+        <p class="help" id="username-help" style="display:none;">Usernames may be bare
+           handles, <code>@handles</code>, or profile links (t.me/…, linkedin.com/in/…);
+           the handle is extracted and lower-cased. Telegram and LinkedIn support this type.</p>
       </div>
 
       <!-- 03 Choose -->
@@ -145,19 +148,20 @@
 </div>
 
 <script>
-  // [{group, services:[{key,label}]}] in display order.
-  const PHONE_SERVICES = [{% for g, svcs in phone_services %}{group:"{{g}}",services:[{% for k,l,t in svcs %}{key:"{{k}}",label:"{{l}}"},{% endfor %}]},{% endfor %}];
-  const EMAIL_SERVICES = [{% for g, svcs in email_services %}{group:"{{g}}",services:[{% for k,l,t in svcs %}{key:"{{k}}",label:"{{l}}"},{% endfor %}]},{% endfor %}];
+  // {contact_type: [{group, services:[{key,label}]}]} in display order.
+  const SERVICES = {{ services_json|safe }};
   // {contact_type: {service_key: [{key,label,price}, ...]}}
   const CHECKERS = {{ checkers_json|safe }};
 
   const numStepsInput = document.getElementById('num_steps');
+  function contactType() {
+    return document.getElementById('contact_type').value || 'phone';
+  }
   function currentServices() {
-    return document.getElementById('contact_type').value === 'email'
-      ? EMAIL_SERVICES : PHONE_SERVICES;
+    return SERVICES[contactType()] || [];
   }
   function checkersFor(serviceKey) {
-    const ct = document.getElementById('contact_type').value === 'email' ? 'email' : 'phone';
+    const ct = contactType();
     return (CHECKERS[ct] && CHECKERS[ct][serviceKey]) || [];
   }
   // Fill the checker dropdown for a step based on its selected service.
@@ -234,8 +238,9 @@
     updateCost();
   }
   function onTypeChange() {
-    document.getElementById('phone-opts').style.display =
-      document.getElementById('contact_type').value === 'email' ? 'none' : 'block';
+    const ct = contactType();
+    document.getElementById('phone-opts').style.display = ct === 'phone' ? 'block' : 'none';
+    document.getElementById('username-help').style.display = ct === 'username' ? 'block' : 'none';
     renderSteps();
   }
   document.querySelectorAll('#stepSeg .seg-btn').forEach(btn => {
